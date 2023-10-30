@@ -1,4 +1,4 @@
-import { Contract } from '@models/contract';
+import { Contract } from '@types/contract';
 
 export interface EventsDTO {
   contract: Contract;
@@ -8,4 +8,6 @@ export interface EventsDTO {
   };
   address: string;
   providerIndex: any;
+  page?: number,
+  perPage?: number
 }

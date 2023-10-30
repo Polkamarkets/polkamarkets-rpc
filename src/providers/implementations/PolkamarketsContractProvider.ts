@@ -2,9 +2,10 @@ import * as polkamarketsjs from 'polkamarkets-js';
 
 import { ContractProvider } from '@providers/ContractProvider';
 import { Etherscan } from '@services/Etherscan';
-import { RedisService } from '@services/RedisService';
-
-import { EventsWorker } from '@workers/EventsWorker';
+import { Event } from '@models/Event';
+import { Query } from '@models/Query';
+import { EventsWorker } from '../../workers/EventsWorker';
+import { FindOptions } from 'sequelize';
 
 export class PolkamarketsContractProvider implements ContractProvider {
   public polkamarkets: any;
@@ -51,7 +52,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
     }
   }
 
-  public async getBlockRanges() {
+  public async getBlockRanges(currentBlockNumber, fromBlockInput = null) {
     if (!this.blockConfig) {
       return [];
     }
@@ -61,9 +62,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
     }
 
     // iterating by block numbers
-    let fromBlock = this.blockConfig['fromBlock'];
+    let fromBlock = fromBlockInput || this.blockConfig['fromBlock'];
     const blockRanges = [];
-    const currentBlockNumber = await this.polkamarkets.web3.eth.getBlockNumber();
 
     while (fromBlock < currentBlockNumber) {
       let toBlock = (fromBlock - fromBlock % this.blockConfig['blockCount']) + this.blockConfig['blockCount'];
@@ -107,14 +107,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
     return JSON.stringify(normalizedFilter);
   }
 
-  public blockRangeCacheKey(contract: string, address: string, eventName: string, filter: Object, blockRange: Object) {
-    const blockRangeStr = `${blockRange['fromBlock']}-${blockRange['toBlock']}`;
-    return `events:${contract}:${address.toLowerCase()}:${eventName}:${this.normalizeFilter(filter)}:${blockRangeStr}`;
-  }
-
-  public async getContractEvents(contract: string, address: string, providerIndex: number, eventName: string, filter: Object) {
+  public async getContractEvents(contract: string, address: string, providerIndex: number, eventName: string, filter: Object, page: number, perPage: number) {
     const polkamarketsContract = this.getContract(contract, address, providerIndex);
-    this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
     let etherscanData;
 
     if (!this.blockConfig) {
@@ -123,72 +117,52 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return events;
     }
 
-    const readClient = new RedisService().client;
+    let hasPagination = false;
+    if (page && perPage) {
+      hasPagination = true;
+    }
+
+    // get query on database
+    const normalizedFilter = this.normalizeFilter(filter);
+    const query = await this.getQuery({ address, contract, eventName, normalizedFilter });
+
+    let paginatedEvents = [];
 
     if (this.useEtherscan) {
+      let fromBlock = this.blockConfig['fromBlock'];
+
+      if (hasPagination && query.lastBlock) {
+        const events = await this.getEvents({query, page, perPage});
+        paginatedEvents = this.mapDBEvents(events);
+        if (paginatedEvents.length >= perPage) {
+          return paginatedEvents;
+        }
+        fromBlock = query.lastBlock + 1;
+      }
+
       try {
-        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, this.blockConfig['fromBlock'], 'latest', eventName, filter));
+        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, fromBlock, 'latest', eventName, filter));
       } catch (err) {
         // error fetching data from etherscan, taking RPC route
       }
     }
 
-    // iterating by block numbers
-    let events = [];
-    let rpcError;
-    const blockRanges = await this.getBlockRanges();
-
-    const keys = blockRanges.map((blockRange) => this.blockRangeCacheKey(contract, address, eventName, filter, blockRange));
-
-    const response = await readClient.mget(...keys).catch(err => {
-      console.log(err);
-      readClient.end();
-      throw(err);
-    });
-
-    // closing connection after request is finished
-    readClient.end();
+    const currentBlockNumber = await this.getCurrentBlockNumber();
 
     // successful etherscan call
     if (etherscanData && !etherscanData.maxLimitReached) {
-      // filling up empty redis slots
-      const writeKeys: Array<[key: string, value: string]> = [];
 
-      keys.forEach((key, index) => {
-        const result = response[index];
-        const fromBlock = parseInt(key.split(':').pop().split('-')[0]);
-        const toBlock = parseInt(key.split(':').pop().split('-')[1]);
+      // write to database.
+      await this.addEventsToQuery({ events: etherscanData.result, query, lastBlockToSave: currentBlockNumber });
 
-        if (!result && (toBlock % this.blockConfig['blockCount'] === 0)) {
-          // key not stored in redis
-          writeKeys.push([
-            key,
-            JSON.stringify(etherscanData.result.filter(e => e.blockNumber >= fromBlock && e.blockNumber <= toBlock))
-          ]);
-        }
-      });
-
-      if (writeKeys.length > 0) {
-        const writeClient = new RedisService().client;
-
-        // writing to redis (using N set calls instead of mset to set a ttl)
-        await Promise.all(writeKeys.map(async (item) => {
-          await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
-            console.log(err);
-            writeClient.end();
-            throw(err);
-          });
-        }));
-
-        writeClient.end();
+      if (hasPagination) {
+        return paginatedEvents.concat(etherscanData.result.slice(0, perPage - paginatedEvents.length))
       }
-
       return etherscanData.result;
     }
 
-    // filling up empty redis slots (only verifying for first provider)
-    if (!process.env.DISABLE_QUEUES && providerIndex === 0 && response.slice(0, -1).filter(r => r === null).length > 1) {
-      // some keys are not stored in redis, triggering backfill worker
+    // Trigger background job to save data
+    if (!process.env.DISABLE_QUEUES && providerIndex === 0) {
       EventsWorker.send(
         {
           contract,
@@ -199,50 +173,174 @@ export class PolkamarketsContractProvider implements ContractProvider {
       );
     }
 
-    await Promise.all(blockRanges.map(async (blockRange, index) => {
-      // checking redis if events are cached
-      const result = response[index];
-      let blockEvents;
+    // if limit was reached, let's try to use the saved data and get from etherscan one time
+    let events = [];
+    if (etherscanData && etherscanData.maxLimitReached && query.lastBlock && !hasPagination) {
+      // limit reached, use saved query and ask for the rest on etherscan
+      events = this.mapDBEvents(await this.getEvents({query}));
 
-      if (result) {
-        blockEvents = JSON.parse(result);
-      } else {
-        try {
-          blockEvents = await polkamarketsContract.getContract().getPastEvents(eventName, {
-            filter,
-            ...blockRange
-          });
-        } catch (err) {
-          // non-blocking, error will be thrown after all calls are performed
-          rpcError = err;
-          return;
-        }
-
-        // not writing to cache if block range is not complete
-        if (blockRange.toBlock % this.blockConfig['blockCount'] === 0) {
-          const writeClient = new RedisService().client;
-          writeClient.nodeRedis.on("error", err => {
-            // redis connection error, ignoring and letting the get/set functions error handlers act
-            console.log("ERR :: Redis Connection: " + err);
-            writeClient.end();
-          });
-
-          const key = this.blockRangeCacheKey(contract, address, eventName, filter, blockRange);
-          await writeClient.set(key, JSON.stringify(blockEvents), 'EX', 60 * 60 * 24 * 2).catch(err => {
-            console.log(err);
-            writeClient.end();
-            throw(err);
-          });
-          writeClient.end();
-        }
+      try {
+        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, query.lastBlock + 1, 'latest', eventName, filter));
+      } catch (err) {
+        // error fetching data from etherscan, taking RPC route
       }
 
-      events = blockEvents.concat(events);
+      if (etherscanData && !etherscanData.maxLimitReached) {
+        return [...events, ...etherscanData.result];
+      }
+    }
+
+    // last fallback
+    let blockRanges = [];
+    events = [];
+
+    if (query.lastBlock) {
+      // if query already exists, add those events and iterate rpc blocks after that
+      blockRanges = await this.getBlockRanges(currentBlockNumber, query.lastBlock + 1);
+      events = this.mapDBEvents(await this.getEvents({query}));
+    } else {
+      // if not, iterate rpc blocks
+      blockRanges = await this.getBlockRanges(currentBlockNumber);
+    }
+
+    // save the ones that were not on the database
+    let allBlocksComplete = true;
+
+    for (const blockRange of blockRanges) {
+      let blockEvents;
+
+      try {
+        blockEvents = await polkamarketsContract.getContract().getPastEvents(eventName, {
+          filter,
+          ...blockRange
+        });
+      } catch (err) {
+        throw (err);
+      }
+
+      // not writing to database if block range is not complete or previous block range not complete
+      if (blockRange.toBlock % this.blockConfig['blockCount'] === 0 && allBlocksComplete) {
+        await this.addEventsToQuery({events: blockEvents, query, lastBlockToSave: blockRange.toBlock});
+      } else {
+        allBlocksComplete = false;
+      }
+
+      events = events.concat(blockEvents);
+    }
+
+    return hasPagination ? events.slice((page - 1) * perPage, perPage * page) : events;
+  }
+
+  public async addEventsToQuery({ events, query, lastBlockToSave }: { events: any, query: Query, lastBlockToSave: number}) {
+    const eventsToAdd: Event[] = [];
+    for (const eventData of events) {
+      if (eventData.blockNumber <= query.lastBlock) {
+        // no need to check
+        continue;
+      }
+
+      const [event, created] = await Event.findOrCreate({
+        where: {
+          transactionHash: eventData.transactionHash,
+          logIndex: eventData.logIndex,
+        },
+        defaults: {
+          address: eventData.address,
+          blockHash: eventData.blockHash,
+          blockNumber: eventData.blockNumber,
+          removed: eventData.removed,
+          transactionIndex: eventData.transactionIndex,
+          transactionLogIndex: eventData.transactionLogIndex,
+          eventId: eventData.eventId,
+          returnValues: eventData.returnValues,
+          event: eventData.event,
+          signature: eventData.signature,
+          raw: eventData.raw,
+        }
+      });
+
+
+      // if already exists, just update the fields
+      if (!created) {
+        event.address = eventData.address;
+        event.blockHash = eventData.blockHash;
+        event.blockNumber = eventData.blockNumber;
+        event.logIndex = eventData.logIndex;
+        event.removed = eventData.removed;
+        event.transactionHash = eventData.transactionHash;
+        event.transactionIndex = eventData.transactionIndex;
+        event.transactionLogIndex = eventData.transactionLogIndex;
+        event.eventId = eventData.eventId;
+        event.returnValues = eventData.returnValues;
+        event.event = eventData.event;
+        event.signature = eventData.signature;
+        event.raw = eventData.raw;
+
+        await event.save();
+      }
+
+      eventsToAdd.push(event);
+    }
+
+    await query.$add('events', eventsToAdd);
+
+    query.lastBlock = lastBlockToSave;
+    await query.save();
+  }
+
+  public async getQuery({address, contract, eventName, normalizedFilter}: {address: string, contract: string, eventName: string, normalizedFilter: string} ): Promise<Query> {
+    const [query, created] = await Query.findOrCreate({
+      where: {
+        address: address.toLowerCase(),
+        contract,
+        eventName,
+        filter: normalizedFilter,
+      },
+    });
+
+    return query;
+  }
+
+  public getEvents({ query, page, perPage }: { query: Query, page?: number, perPage?: number}): Promise<Event[]> {
+    const findOptions: FindOptions = {
+      order: [
+        ['blockNumber', 'asc'],
+        ['logIndex', 'asc'],
+      ]
+    };
+
+    if (page && perPage) {
+      findOptions.limit = perPage;
+      findOptions.offset = (page - 1) * perPage;
+    }
+
+    return query.$get('events', findOptions);
+  }
+
+  public mapDBEvents(events: Event[]): any[] {
+    return events.map((event) => ({
+      address: event.address,
+      blockHash: event.blockHash,
+      blockNumber: event.blockNumber,
+      logIndex: event.logIndex,
+      removed: event.removed,
+      transactionHash: event.transactionHash,
+      transactionIndex: event.transactionIndex,
+      transactionLogIndex: event.transactionLogIndex,
+      eventId: event.eventId,
+      returnValues: event.returnValues,
+      event: event.event,
+      signature: event.signature,
+      raw: event.raw,
     }));
+  }
 
-    // if there's a RPC error, error is thrown after all calls are performed
-    if (rpcError) throw(rpcError);
+  public async getCurrentBlockNumber(): Promise<number> {
 
-    return events.sort((a, b) => a.blockNumber - b.blockNumber);
+    if (!this.polkamarkets) {
+      this.initializePolkamarkets(0);
+    }
+
+    return await this.polkamarkets.web3.eth.getBlockNumber();
   }
 }
