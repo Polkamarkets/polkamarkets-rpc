@@ -5,7 +5,9 @@ export interface ContractProvider {
     address: string,
     providerIndex: number,
     eventName: string,
-    filter: Object
+    filter: Object,
+    fromBlock?: string,
+    toBlock?: string
   ) => any;
   web3Providers: string[];
 }

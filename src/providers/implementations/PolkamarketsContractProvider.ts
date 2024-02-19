@@ -118,16 +118,25 @@ export class PolkamarketsContractProvider implements ContractProvider {
     return `events:${contract}:${address.toLowerCase()}:${eventName}:${this.normalizeFilter(filter)}:${blockRangeStr}`;
   }
 
-  public async getContractEvents(contract: string, address: string, providerIndex: number, eventName: string, filter: Object) {
+  public async getContractEvents(
+    contract: string,
+    address: string,
+    providerIndex: number,
+    eventName: string,
+    filter: Object,
+    fromBlock?: string,
+    toBlock?: string
+  ) {
     const polkamarketsContract = this.getContract(contract, address, providerIndex);
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
     let etherscanData;
 
+    const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
+    const queryToBlock = toBlock || 'latest';
+
     if (!this.blockConfig || !this.blockConfig['blockCount']) {
       // no block config, querying directly in evm
-      const fromBlock = this.blockConfig ? this.blockConfig['fromBlock'] : 0;
-
-      const events = await polkamarketsContract.getEvents(eventName, filter, fromBlock);
+      const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
       return events;
     }
 
@@ -135,7 +144,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     if (this.useEtherscan) {
       try {
-        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, this.blockConfig['fromBlock'], 'latest', eventName, filter));
+        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, queryFromBlock, queryToBlock, eventName, filter));
       } catch (err) {
         // error fetching data from etherscan, taking RPC route
       }

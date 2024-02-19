@@ -8,7 +8,7 @@ export class EventsController {
   constructor(private eventsUseCase: EventsUseCase) {}
 
   async handle(request: Request, response: Response): Promise<Response> {
-    const { contract, eventName, filter, address } = request.query;
+    const { contract, eventName, filter, address, fromBlock, toBlock } = request.query;
 
     for(let providerIndex = 0; providerIndex < this.eventsUseCase.contractProvider.web3Providers.length; providerIndex++) {
       try {
@@ -17,6 +17,8 @@ export class EventsController {
           eventName,
           address,
           providerIndex,
+          fromBlock,
+          toBlock,
           filter: filter ? JSON.parse(filter as string) : {}
         } as EventsDTO);
 
