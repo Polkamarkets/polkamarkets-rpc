@@ -168,36 +168,38 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     // successful etherscan call
     if (etherscanData && !etherscanData.maxLimitReached) {
-      // filling up empty redis slots
-      const writeKeys: Array<[key: string, value: string]> = [];
+      if (!fromBlock && !toBlock) {
+        // filling up empty redis slots
+        const writeKeys: Array<[key: string, value: string]> = [];
 
-      keys.forEach((key, index) => {
-        const result = response[index];
-        const fromBlock = parseInt(key.split(':').pop().split('-')[0]);
-        const toBlock = parseInt(key.split(':').pop().split('-')[1]);
+        keys.forEach((key, index) => {
+          const result = response[index];
+          const fromBlock = parseInt(key.split(':').pop().split('-')[0]);
+          const toBlock = parseInt(key.split(':').pop().split('-')[1]);
 
-        if (!result && (toBlock % this.blockConfig['blockCount'] === 0)) {
-          // key not stored in redis
-          writeKeys.push([
-            key,
-            JSON.stringify(etherscanData.result.filter(e => e.blockNumber >= fromBlock && e.blockNumber <= toBlock))
-          ]);
+          if (!result && (toBlock % this.blockConfig['blockCount'] === 0)) {
+            // key not stored in redis
+            writeKeys.push([
+              key,
+              JSON.stringify(etherscanData.result.filter(e => e.blockNumber >= fromBlock && e.blockNumber <= toBlock))
+            ]);
+          }
+        });
+
+        if (writeKeys.length > 0 ) {
+          const writeClient = new RedisService().client;
+
+          // writing to redis (using N set calls instead of mset to set a ttl)
+          await Promise.all(writeKeys.map(async (item) => {
+            await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
+              console.log(err);
+              writeClient.end();
+              throw(err);
+            });
+          }));
+
+          writeClient.end();
         }
-      });
-
-      if (writeKeys.length > 0) {
-        const writeClient = new RedisService().client;
-
-        // writing to redis (using N set calls instead of mset to set a ttl)
-        await Promise.all(writeKeys.map(async (item) => {
-          await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
-            console.log(err);
-            writeClient.end();
-            throw(err);
-          });
-        }));
-
-        writeClient.end();
       }
 
       return etherscanData.result;
