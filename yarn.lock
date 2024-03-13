@@ -12748,9 +12748,9 @@ pkg-up@^3.1.0:
   dependencies:
     find-up "^3.0.0"
 
-polkamarkets-js@polkamarkets/polkamarkets-js:
+polkamarkets-js@polkamarkets/polkamarkets-js#feat/v3:
   version "1.2.1"
-  resolved "https://codeload.github.com/polkamarkets/polkamarkets-js/tar.gz/f01c1531cfed80de047457476392f6112649eec7"
+  resolved "https://codeload.github.com/polkamarkets/polkamarkets-js/tar.gz/21aaabdfcab095eb1e815ccecb4f3f7b0fb29ff7"
   dependencies:
     "@biconomy/smart-account" "^2.0.0"
     "@metamask/safe-event-emitter" "^2.0.0"
