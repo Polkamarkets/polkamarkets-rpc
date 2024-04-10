@@ -231,6 +231,12 @@ export class PolkamarketsContractProvider implements ContractProvider {
             filter,
             ...blockRange
           });
+
+          if (!Array.isArray(blockEvents)) {
+            // invalid response, throwing error
+            rpcError = blockEvents;
+            return;
+          }
         } catch (err) {
           // non-blocking, error will be thrown after all calls are performed
           rpcError = err;
