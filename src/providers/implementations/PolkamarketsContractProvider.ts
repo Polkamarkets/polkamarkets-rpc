@@ -59,7 +59,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
     }
   }
 
-  public async getBlockRanges() {
+  public async getBlockRanges(queryFromBlock, queryToBlock) {
     if (!this.blockConfig) {
       return [];
     }
@@ -76,6 +76,15 @@ export class PolkamarketsContractProvider implements ContractProvider {
     while (fromBlock < currentBlockNumber) {
       let toBlock = (fromBlock - fromBlock % this.blockConfig['blockCount']) + this.blockConfig['blockCount'];
       toBlock = toBlock > currentBlockNumber ? currentBlockNumber : toBlock;
+
+      if (queryFromBlock && toBlock < queryFromBlock) {
+        fromBlock = toBlock + 1;
+        continue;
+      }
+
+      if (queryToBlock && queryToBlock !== 'latest' && fromBlock > queryToBlock) {
+        break;
+      }
 
       blockRanges.push({
         fromBlock,
@@ -155,7 +164,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
     // iterating by block numbers
     let events = [];
     let rpcError;
-    const blockRanges = await this.getBlockRanges();
+    const blockRanges = await this.getBlockRanges(queryFromBlock, queryToBlock);
 
     const keys = blockRanges.map((blockRange) => this.blockRangeCacheKey(contract, address, eventName, filter, blockRange));
 
