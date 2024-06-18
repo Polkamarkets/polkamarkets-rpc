@@ -22,16 +22,23 @@ export class PolkamarketsContractProvider implements ContractProvider {
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
   }
 
-  public initializePolkamarkets(web3ProviderIndex: number) {
+  public initializePolkamarkets(web3ProviderIndex: number, privateKey?: string) {
     // picking up provider and starting polkamarkets
-    this.polkamarkets = new polkamarketsjs.Application({
-      web3Provider: this.web3Providers[web3ProviderIndex]
-    });
+    if (privateKey) {
+      this.polkamarkets = new polkamarketsjs.Application({
+        web3Provider: this.web3Providers[web3ProviderIndex],
+        web3PrivateKey: privateKey
+      });
+    } else {
+      this.polkamarkets = new polkamarketsjs.Application({
+        web3Provider: this.web3Providers[web3ProviderIndex]
+      });
+    }
     this.polkamarkets.start();
   }
 
-  public getContract(contract: string, address: string, providerIndex: number) {
-    this.initializePolkamarkets(providerIndex);
+  public getContract(contract: string, address: string, providerIndex: number, privateKey?: string) {
+    this.initializePolkamarkets(providerIndex, privateKey);
 
     if (contract === 'predictionMarket') {
       return this.polkamarkets.getPredictionMarketContract({ contractAddress: address });
@@ -53,6 +60,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return this.polkamarkets.getArbitrationContract({ contractAddress: address });
     } else if (contract === 'arbitrationProxy') {
       return this.polkamarkets.getArbitrationProxyContract({ contractAddress: address });
+    } else if (contract === 'fantasyERC20Contract') {
+      return this.polkamarkets.getFantasyERC20Contract({ contractAddress: address });
     } else {
       // this should never happen - should be overruled by the controller
       throw `'Contract ${contract} is not defined`;
