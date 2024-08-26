@@ -16,7 +16,7 @@ export class ExecuteController {
     const decryptedTimestamp = encryptionService.decrypt(timestamp);
 
     // if decrypted timestamp is older than env variable, return 403
-    if (Date.now() - Number(decryptedTimestamp) > (Number(process.env.ENCRYPT_TIMESTAMP_DIFF_MILISECONDS || 1000))) {
+    if (Date.now() - Number(decryptedTimestamp) > (Number(process.env.ENCRYPT_TIMESTAMP_DIFF_MILISECONDS || 30000))) {
       return response.status(403).json({
         message: 'Invalid timestamp'
       });
