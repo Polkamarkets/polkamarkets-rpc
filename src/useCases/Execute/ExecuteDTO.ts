@@ -7,4 +7,5 @@ export interface ExecuteDTO {
   address: any;
   providerIndex: any;
   privateKey: string;
+  timestamp: string;
 }

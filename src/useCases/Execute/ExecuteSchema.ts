@@ -8,4 +8,5 @@ export const executeSchema = yup.object({
   method: yup.string().required('Method is required!'),
   address: yup.string().required('Address is required!'),
   privateKey: yup.string().required('Private key is required!'),
+  timestamp: yup.string().required('Timestamp is required!'),
 });

@@ -33,6 +33,15 @@ http://localhost:3333/call?contract=predictionMarket&method=${method}&args=${arg
 http://localhost:3333/events?contract=predictionMarket&eventName=${eventName}&address=${contractAddress}&filter=${filter}
 ```
 
+## Generate Private/Public Key pair to protect execute calls
+```bash
+openssl genrsa -out private_key.pem 4096
+```
+
+```bash
+openssl rsa -pubout -in private_key.pem -out public_key.pem
+```
+
 ## Contribution
 
 Contributions are welcomed but we ask to red existing code guidelines, specially the code format. Please review [Contributor guidelines][1]
