@@ -34,10 +34,10 @@ export class ExecuteController {
         } as ExecuteDTO);
 
         if (typeof data === 'boolean' || typeof data === 'string') {
-          return response.status(200).send(data);
+          return response.status(200).json(data);
         }
 
-        return response.status(200).send(Object.values(data));
+        return response.status(200).json(data);
       } catch (error) {
         // No providers left, raising last error
         if (providerIndex === this.executeUseCase.contractProvider.web3Providers.length - 1) {
