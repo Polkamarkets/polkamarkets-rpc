@@ -3,11 +3,12 @@ import cors from 'cors';
 
 import { router } from './routes';
 import { queuesPath, queuesRouter } from './queues';
-import logger from 'morgan';
 
 const app = express();
 
-app.use(logger('dev'));
+// uncomment for development purposes
+// import logger from 'morgan';
+// app.use(logger('dev'));
 
 app.use(cors());
 app.use(express.json());
