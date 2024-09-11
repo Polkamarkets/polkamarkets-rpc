@@ -1,11 +1,13 @@
 export interface ContractProvider {
-  getContract: (contract: string, address: string, providerIndex: number) => any;
+  getContract: (contract: string, address: string, providerIndex: number, privateKey?: string) => any;
   getContractEvents: (
     contract: string,
     address: string,
     providerIndex: number,
     eventName: string,
-    filter: Object
+    filter: Object,
+    fromBlock?: string,
+    toBlock?: string
   ) => any;
   web3Providers: string[];
 }

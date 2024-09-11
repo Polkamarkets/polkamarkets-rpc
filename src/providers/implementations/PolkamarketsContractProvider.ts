@@ -22,21 +22,34 @@ export class PolkamarketsContractProvider implements ContractProvider {
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
   }
 
-  public initializePolkamarkets(web3ProviderIndex: number) {
+  public initializePolkamarkets(web3ProviderIndex: number, privateKey?: string) {
     // picking up provider and starting polkamarkets
-    this.polkamarkets = new polkamarketsjs.Application({
-      web3Provider: this.web3Providers[web3ProviderIndex]
-    });
+    if (privateKey) {
+      this.polkamarkets = new polkamarketsjs.Application({
+        web3Provider: this.web3Providers[web3ProviderIndex],
+        web3PrivateKey: privateKey
+      });
+    } else {
+      this.polkamarkets = new polkamarketsjs.Application({
+        web3Provider: this.web3Providers[web3ProviderIndex]
+      });
+    }
     this.polkamarkets.start();
   }
 
-  public getContract(contract: string, address: string, providerIndex: number) {
-    this.initializePolkamarkets(providerIndex);
+  public getContract(contract: string, address: string, providerIndex: number, privateKey?: string) {
+    this.initializePolkamarkets(providerIndex, privateKey);
 
     if (contract === 'predictionMarket') {
       return this.polkamarkets.getPredictionMarketContract({ contractAddress: address });
     } else if (contract === 'predictionMarketV2') {
       return this.polkamarkets.getPredictionMarketV2Contract({ contractAddress: address });
+    } else if (contract === 'predictionMarketV3') {
+      return this.polkamarkets.getPredictionMarketV3Contract({ contractAddress: address });
+    } else if (contract === 'predictionMarketV3Manager') {
+      return this.polkamarkets.getPredictionMarketV3ManagerContract({ contractAddress: address });
+    } else if (contract === 'predictionMarketV3Controller') {
+      return this.polkamarkets.getPredictionMarketV3ControllerContract({ contractAddress: address });
     } else if (contract === 'erc20') {
       return this.polkamarkets.getERC20Contract({ contractAddress: address });
     } else if (contract === 'realitio') {
@@ -49,13 +62,15 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return this.polkamarkets.getArbitrationContract({ contractAddress: address });
     } else if (contract === 'arbitrationProxy') {
       return this.polkamarkets.getArbitrationProxyContract({ contractAddress: address });
+    } else if (contract === 'fantasyERC20Contract') {
+      return this.polkamarkets.getFantasyERC20Contract({ contractAddress: address });
     } else {
       // this should never happen - should be overruled by the controller
       throw `'Contract ${contract} is not defined`;
     }
   }
 
-  public async getBlockRanges() {
+  public async getBlockRanges(queryFromBlock, queryToBlock) {
     if (!this.blockConfig) {
       return [];
     }
@@ -72,6 +87,15 @@ export class PolkamarketsContractProvider implements ContractProvider {
     while (fromBlock < currentBlockNumber) {
       let toBlock = (fromBlock - fromBlock % this.blockConfig['blockCount']) + this.blockConfig['blockCount'];
       toBlock = toBlock > currentBlockNumber ? currentBlockNumber : toBlock;
+
+      if (queryFromBlock && toBlock < queryFromBlock) {
+        fromBlock = toBlock + 1;
+        continue;
+      }
+
+      if (queryToBlock && queryToBlock !== 'latest' && fromBlock > queryToBlock) {
+        break;
+      }
 
       blockRanges.push({
         fromBlock,
@@ -116,16 +140,25 @@ export class PolkamarketsContractProvider implements ContractProvider {
     return `events:${contract}:${address.toLowerCase()}:${eventName}:${this.normalizeFilter(filter)}:${blockRangeStr}`;
   }
 
-  public async getContractEvents(contract: string, address: string, providerIndex: number, eventName: string, filter: Object) {
+  public async getContractEvents(
+    contract: string,
+    address: string,
+    providerIndex: number,
+    eventName: string,
+    filter: Object,
+    fromBlock?: string,
+    toBlock?: string
+  ) {
     const polkamarketsContract = this.getContract(contract, address, providerIndex);
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
     let etherscanData;
 
+    const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
+    const queryToBlock = toBlock || 'latest';
+
     if (!this.blockConfig || !this.blockConfig['blockCount']) {
       // no block config, querying directly in evm
-      const fromBlock = this.blockConfig ? this.blockConfig['fromBlock'] : 0;
-
-      const events = await polkamarketsContract.getEvents(eventName, filter, fromBlock);
+      const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
       return events;
     }
 
@@ -133,7 +166,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     if (this.useEtherscan) {
       try {
-        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, this.blockConfig['fromBlock'], 'latest', eventName, filter));
+        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, queryFromBlock, queryToBlock, eventName, filter));
       } catch (err) {
         // error fetching data from etherscan, taking RPC route
       }
@@ -142,7 +175,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
     // iterating by block numbers
     let events = [];
     let rpcError;
-    const blockRanges = await this.getBlockRanges();
+    const blockRanges = await this.getBlockRanges(queryFromBlock, queryToBlock);
 
     const keys = blockRanges.map((blockRange) => this.blockRangeCacheKey(contract, address, eventName, filter, blockRange));
 
@@ -157,36 +190,38 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     // successful etherscan call
     if (etherscanData && !etherscanData.maxLimitReached) {
-      // filling up empty redis slots
-      const writeKeys: Array<[key: string, value: string]> = [];
+      if (!fromBlock && !toBlock) {
+        // filling up empty redis slots
+        const writeKeys: Array<[key: string, value: string]> = [];
 
-      keys.forEach((key, index) => {
-        const result = response[index];
-        const fromBlock = parseInt(key.split(':').pop().split('-')[0]);
-        const toBlock = parseInt(key.split(':').pop().split('-')[1]);
+        keys.forEach((key, index) => {
+          const result = response[index];
+          const fromBlock = parseInt(key.split(':').pop().split('-')[0]);
+          const toBlock = parseInt(key.split(':').pop().split('-')[1]);
 
-        if (!result && (toBlock % this.blockConfig['blockCount'] === 0)) {
-          // key not stored in redis
-          writeKeys.push([
-            key,
-            JSON.stringify(etherscanData.result.filter(e => e.blockNumber >= fromBlock && e.blockNumber <= toBlock))
-          ]);
+          if (!result && (toBlock % this.blockConfig['blockCount'] === 0)) {
+            // key not stored in redis
+            writeKeys.push([
+              key,
+              JSON.stringify(etherscanData.result.filter(e => e.blockNumber >= fromBlock && e.blockNumber <= toBlock))
+            ]);
+          }
+        });
+
+        if (writeKeys.length > 0 ) {
+          const writeClient = new RedisService().client;
+
+          // writing to redis (using N set calls instead of mset to set a ttl)
+          await Promise.all(writeKeys.map(async (item) => {
+            await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
+              console.log(err);
+              writeClient.end();
+              throw(err);
+            });
+          }));
+
+          writeClient.end();
         }
-      });
-
-      if (writeKeys.length > 0) {
-        const writeClient = new RedisService().client;
-
-        // writing to redis (using N set calls instead of mset to set a ttl)
-        await Promise.all(writeKeys.map(async (item) => {
-          await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
-            console.log(err);
-            writeClient.end();
-            throw(err);
-          });
-        }));
-
-        writeClient.end();
       }
 
       return etherscanData.result;
@@ -218,6 +253,12 @@ export class PolkamarketsContractProvider implements ContractProvider {
             filter,
             ...blockRange
           });
+
+          if (!Array.isArray(blockEvents)) {
+            // invalid response, throwing error
+            rpcError = blockEvents;
+            return;
+          }
         } catch (err) {
           // non-blocking, error will be thrown after all calls are performed
           rpcError = err;
