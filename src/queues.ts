@@ -4,23 +4,27 @@ import { ExpressAdapter } from '@bull-board/express';
 
 import { EventsWorker } from '@workers/EventsWorker';
 
-// initializing all queues
-// TODO: improve this
-const eventsQueue = EventsWorker.init();
+const queuesEnabled = !process.env.DISABLE_QUEUES && !!process.env.REDIS_URL;
 
-const serverAdapter = new ExpressAdapter();
+let queuesPath, queuesRouter;
 
-const { addQueue, removeQueue, setQueues, replaceQueues } = createBullBoard({
-  queues: [
-    new BullMQAdapter(eventsQueue)
-  ],
-  serverAdapter: serverAdapter,
-});
+if (queuesEnabled) {
+  const eventsQueue = EventsWorker.init();
 
-const queuesPath = '/admin/queues';
+  const serverAdapter = new ExpressAdapter();
 
-serverAdapter.setBasePath(queuesPath);
+  const { addQueue, removeQueue, setQueues, replaceQueues } = createBullBoard({
+    queues: [
+      new BullMQAdapter(eventsQueue)
+    ],
+    serverAdapter: serverAdapter,
+  });
 
-const queuesRouter = serverAdapter.getRouter();
+  queuesPath = '/admin/queues';
+
+  serverAdapter.setBasePath(queuesPath);
+
+  queuesRouter = serverAdapter.getRouter();
+}
 
 export { queuesPath, queuesRouter };
