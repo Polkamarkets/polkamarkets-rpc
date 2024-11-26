@@ -50,6 +50,12 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return this.polkamarkets.getPredictionMarketV3ManagerContract({ contractAddress: address });
     } else if (contract === 'predictionMarketV3Controller') {
       return this.polkamarkets.getPredictionMarketV3ControllerContract({ contractAddress: address });
+    } else if (contract === 'rewardsDistributor') {
+      return this.polkamarkets.getRewardsDistributorContract({ contractAddress: address });
+    } else if (contract === 'simpleAccount') {
+      return this.polkamarkets.getSimpleAccountContract({ contractAddress: address });
+    } else if (contract === 'accountCore') {
+      return this.polkamarkets.getAccountCoreContract({ contractAddress: address });
     } else if (contract === 'erc20') {
       return this.polkamarkets.getERC20Contract({ contractAddress: address });
     } else if (contract === 'realitio') {
