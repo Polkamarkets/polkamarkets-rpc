@@ -156,10 +156,18 @@ export class PolkamarketsContractProvider implements ContractProvider {
     const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
     const queryToBlock = toBlock || 'latest';
 
-    if (!this.blockConfig || !this.blockConfig['blockCount']) {
+    if (!this.blockConfig || !this.blockConfig['blockCount'] || this.blockConfig['fallback']) {
       // no block config, querying directly in evm
-      const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
-      return events;
+      try {
+        const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
+        return events;
+      } catch (err) {
+        if (err.message.includes('logs matched by query exceeds limit of 10000') && this.blockConfig['fallback']) {
+          // arbitrum logs limit reached, using fallback block fetcher
+        } else {
+          throw(err);
+        }
+      }
     }
 
     const readClient = new RedisService().client;
