@@ -162,7 +162,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
         const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
         return events;
       } catch (err) {
-        if (err.message.includes('logs matched by query exceeds limit of 10000') && this.blockConfig['fallback']) {
+        if (err.message.includes('10000') && this.blockConfig['fallback']) {
           // arbitrum logs limit reached, using fallback block fetcher
         } else {
           throw(err);
