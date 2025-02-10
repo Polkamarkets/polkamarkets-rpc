@@ -15,11 +15,18 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
   public blockConfig: Object | undefined;
 
+  public limitMessages: Array<string>;
+
   constructor() {
     // providers are comma separated
     this.web3Providers = process.env.WEB3_PROVIDER.split(',');
     this.useEtherscan = !!(process.env.ETHERSCAN_URL && process.env.ETHERSCAN_API_KEY);
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
+    this.limitMessages = [
+      'logs matched by query exceeds limit of 10000',
+      'Query returned more than 10000 results',
+      '10,000'
+    ];
   }
 
   public initializePolkamarkets(web3ProviderIndex: number, privateKey?: string) {
@@ -162,7 +169,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
         const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
         return events;
       } catch (err) {
-        if (err.message.includes('10000') && this.blockConfig['fallback']) {
+        if (this.blockConfig['fallback'] && this.limitMessages.some(m => err.message.includes(m))) {
           // arbitrum logs limit reached, using fallback block fetcher
         } else {
           throw(err);
@@ -257,16 +264,13 @@ export class PolkamarketsContractProvider implements ContractProvider {
         blockEvents = JSON.parse(result);
       } else {
         try {
-          blockEvents = await polkamarketsContract.getContract().getPastEvents(eventName, {
+          blockEvents = await this.getBlockRangeEvents(
+            polkamarketsContract,
             filter,
-            ...blockRange
-          });
-
-          if (!Array.isArray(blockEvents)) {
-            // invalid response, throwing error
-            rpcError = blockEvents;
-            return;
-          }
+            eventName,
+            blockRange.fromBlock,
+            blockRange.toBlock
+          );
         } catch (err) {
           // non-blocking, error will be thrown after all calls are performed
           rpcError = err;
@@ -299,5 +303,40 @@ export class PolkamarketsContractProvider implements ContractProvider {
     if (rpcError) throw(rpcError);
 
     return events.sort((a, b) => a.blockNumber - b.blockNumber);
+  }
+
+  public async getBlockRangeEvents(
+    contract: any,
+    filter: any,
+    eventName: string,
+    fromBlock: number,
+    toBlock: number,
+  ) {
+    try {
+      const events = await contract.getContract().getPastEvents(eventName, {
+        filter,
+        fromBlock,
+        toBlock
+      });
+
+      if (!Array.isArray(events)) {
+        // invalid response, throwing error
+        const rpcError = events;
+        throw rpcError;
+      }
+
+      return events;
+    } catch (err) {
+      if (this.limitMessages.some(m => err.message.includes(m))) {
+        // splitting block range in half recursively
+        const middleBlock = Math.floor((toBlock + fromBlock) / 2);
+        const leftEvents = await this.getBlockRangeEvents(contract, filter, eventName, fromBlock, middleBlock);
+        const rightEvents = await this.getBlockRangeEvents(contract, filter, eventName, middleBlock + 1, toBlock);
+
+        return leftEvents.concat(rightEvents);
+      }
+
+      throw(err);
+    }
   }
 }
