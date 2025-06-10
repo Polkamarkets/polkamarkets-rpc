@@ -25,7 +25,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
     this.limitMessages = [
       'logs matched by query exceeds limit of 10000',
       'Query returned more than 10000 results',
-      '10,000'
+      '10,000',
+      'Response is too big'
     ];
   }
 
