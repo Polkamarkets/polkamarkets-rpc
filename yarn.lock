@@ -10136,7 +10136,7 @@ pngjs@^5.0.0:
 
 polkamarkets-js@polkamarkets/polkamarkets-js#feat/v3.2:
   version "3.1.11"
-  resolved "https://codeload.github.com/polkamarkets/polkamarkets-js/tar.gz/16baf16cedbcda7e074583a6fab09116df52ee22"
+  resolved "https://codeload.github.com/polkamarkets/polkamarkets-js/tar.gz/f83b49b38fb6cfb1cbbef3e6aa0e49d42cbdd208"
   dependencies:
     "@metamask/safe-event-emitter" "^2.0.0"
     "@metamask/utils" "^8.2.1"
