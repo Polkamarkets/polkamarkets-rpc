@@ -6,6 +6,70 @@ import { CallUseCase } from './CallUseCase';
 export class CallController {
   constructor(private callUseCase: CallUseCase) {}
 
+  private parseArguments(argsString: string): any[] {
+    if (!argsString) return [];
+
+    const args: any[] = [];
+    let current = '';
+    let depth = 0;
+    let inString = false;
+    let stringChar = '';
+
+    for (let i = 0; i < argsString.length; i++) {
+      const char = argsString[i];
+
+      // Handle string delimiters
+      if ((char === '"' || char === "'") && !inString) {
+        inString = true;
+        stringChar = char;
+        current += char;
+      } else if (char === stringChar && inString) {
+        // Check if it's escaped
+        if (i > 0 && argsString[i - 1] === '\\') {
+          current += char;
+        } else {
+          inString = false;
+          stringChar = '';
+          current += char;
+        }
+      } else if (inString) {
+        current += char;
+      } else {
+        // Not in string, handle JSON brackets/braces
+        if (char === '[' || char === '{') {
+          depth++;
+          current += char;
+        } else if (char === ']' || char === '}') {
+          depth--;
+          current += char;
+        } else if (char === ',' && depth === 0) {
+          // Top-level comma - split here
+          args.push(this.parseArgument(current.trim()));
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+    }
+
+    // Add the last argument
+    if (current.trim()) {
+      args.push(this.parseArgument(current.trim()));
+    }
+
+    return args;
+  }
+
+  private parseArgument(arg: string): any {
+    // Try to parse as JSON first
+    try {
+      return JSON.parse(arg);
+    } catch {
+      // If JSON parsing fails, return as string
+      return arg;
+    }
+  }
+
   async handle(request: Request, response: Response): Promise<Response> {
     const { contract, method, args, address } = request.query;
 
@@ -16,7 +80,7 @@ export class CallController {
           method,
           address,
           providerIndex,
-          args: args ? (args as string).split(',') : []
+          args: this.parseArguments(args as string)
         } as CallDTO);
 
         if (typeof data === 'boolean' || typeof data === 'string') {
