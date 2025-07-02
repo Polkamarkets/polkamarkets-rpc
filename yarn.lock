@@ -10134,9 +10134,9 @@ pngjs@^5.0.0:
   resolved "https://registry.yarnpkg.com/pngjs/-/pngjs-5.0.0.tgz#e79dd2b215767fd9c04561c01236df960bce7fbb"
   integrity sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==
 
-polkamarkets-js@polkamarkets/polkamarkets-js#feat/v3.2:
+polkamarkets-js@polkamarkets/polkamarkets-js#main:
   version "3.1.11"
-  resolved "https://codeload.github.com/polkamarkets/polkamarkets-js/tar.gz/f83b49b38fb6cfb1cbbef3e6aa0e49d42cbdd208"
+  resolved "https://codeload.github.com/polkamarkets/polkamarkets-js/tar.gz/1f8a71e0ec96d4f1751d785265eddfb667b83ebc"
   dependencies:
     "@metamask/safe-event-emitter" "^2.0.0"
     "@metamask/utils" "^8.2.1"
