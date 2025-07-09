@@ -13,6 +13,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
   public useEtherscan: boolean;
 
+  public etherscanSkipWrite: boolean;
+
   public blockConfig: Object | undefined;
 
   public limitMessages: Array<string>;
@@ -21,6 +23,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
     // providers are comma separated
     this.web3Providers = process.env.WEB3_PROVIDER.split(',');
     this.useEtherscan = !!(process.env.ETHERSCAN_URL && process.env.ETHERSCAN_API_KEY);
+    this.etherscanSkipWrite = !!(process.env.ETHERSCAN_SKIP_WRITE);
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
     this.limitMessages = [
       'logs matched by query exceeds limit of 10000',
@@ -210,7 +213,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     // successful etherscan call
     if (etherscanData && !etherscanData.maxLimitReached) {
-      if (!fromBlock && !toBlock) {
+      if (!fromBlock && !toBlock && !this.etherscanSkipWrite) {
         // filling up empty redis slots
         const writeKeys: Array<[key: string, value: string]> = [];
 
