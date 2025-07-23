@@ -10,7 +10,7 @@ export class EventsController {
   async handle(request: Request, response: Response): Promise<Response> {
     const { contract, eventName, filter, address, fromBlock, toBlock } = request.query;
 
-    for(let providerIndex = 0; providerIndex < this.eventsUseCase.contractProvider.web3Providers.length; providerIndex++) {
+    for(let providerIndex = 0; providerIndex < this.eventsUseCase.contractProvider.web3EventsProviders.length; providerIndex++) {
       try {
         const data = await this.eventsUseCase.execute({
           contract,

@@ -11,6 +11,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
   public web3Providers: Array<string>;
 
+  public web3EventsProviders: Array<string>;
+
   public useEtherscan: boolean;
 
   public etherscanSkipWrite: boolean;
@@ -22,6 +24,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
   constructor() {
     // providers are comma separated
     this.web3Providers = process.env.WEB3_PROVIDER.split(',');
+    this.web3EventsProviders = process.env.WEB3_EVENTS_PROVIDER ? process.env.WEB3_EVENTS_PROVIDER.split(',') : this.web3Providers;
     this.useEtherscan = !!(process.env.ETHERSCAN_URL && process.env.ETHERSCAN_API_KEY);
     this.etherscanSkipWrite = !!(process.env.ETHERSCAN_SKIP_WRITE);
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
@@ -33,23 +36,27 @@ export class PolkamarketsContractProvider implements ContractProvider {
     ];
   }
 
-  public initializePolkamarkets(web3ProviderIndex: number, privateKey?: string) {
+  public initializePolkamarkets(web3ProviderIndex: number, privateKey?: string, web3EventsProviderIndex?: number) {
     // picking up provider and starting polkamarkets
     if (privateKey) {
       this.polkamarkets = new polkamarketsjs.Application({
-        web3Provider: this.web3Providers[web3ProviderIndex],
+        web3Provider: web3EventsProviderIndex !== undefined
+          ? this.web3EventsProviders[web3EventsProviderIndex]
+          : this.web3Providers[web3ProviderIndex],
         web3PrivateKey: privateKey
       });
     } else {
       this.polkamarkets = new polkamarketsjs.Application({
-        web3Provider: this.web3Providers[web3ProviderIndex]
+        web3Provider: web3EventsProviderIndex !== undefined
+          ? this.web3EventsProviders[web3EventsProviderIndex]
+          : this.web3Providers[web3ProviderIndex]
       });
     }
     this.polkamarkets.start();
   }
 
-  public getContract(contract: string, address: string, providerIndex: number, privateKey?: string) {
-    this.initializePolkamarkets(providerIndex, privateKey);
+  public getContract(contract: string, address: string, providerIndex: number, privateKey?: string, web3EventsProviderIndex?: number) {
+    this.initializePolkamarkets(providerIndex, privateKey, web3EventsProviderIndex);
 
     if (contract === 'predictionMarket') {
       return this.polkamarkets.getPredictionMarketContract({ contractAddress: address });
@@ -164,7 +171,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
     fromBlock?: string,
     toBlock?: string
   ) {
-    const polkamarketsContract = this.getContract(contract, address, providerIndex);
+    const polkamarketsContract = this.getContract(contract, address, providerIndex, undefined, providerIndex);
     this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
     let etherscanData;
 
@@ -177,8 +184,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
         const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
         return events;
       } catch (err) {
-        if (this.blockConfig['fallback'] && this.limitMessages.some(m => err.message.includes(m))) {
-          // arbitrum logs limit reached, using fallback block fetcher
+        if (this.blockConfig && this.blockConfig['fallback'] && this.limitMessages.some(m => err.message.includes(m))) {
+          // standard error limit reached, using fallback block fetcher
         } else {
           throw(err);
         }

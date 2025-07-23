@@ -10,4 +10,5 @@ export interface ContractProvider {
     toBlock?: string
   ) => any;
   web3Providers: string[];
+  web3EventsProviders: string[];
 }
