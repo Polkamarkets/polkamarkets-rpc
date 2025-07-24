@@ -46,6 +46,8 @@ export class Etherscan {
 
         break;
       } catch (err) {
+        // 0.2s cooldown
+        await new Promise(resolve => setTimeout(resolve, 200));
         console.log(`Etherscan :: Error fetching events from ${etherscanUrl}`);
         if (i === attempts - 1) {
           throw err;

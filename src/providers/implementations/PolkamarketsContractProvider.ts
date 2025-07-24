@@ -32,7 +32,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
       'logs matched by query exceeds limit of 10000',
       'Query returned more than 10000 results',
       '10,000',
-      'Response is too big'
+      'Response is too big',
+      'Returned error: service temporarily unavailable, retry in 10m0s'
     ];
   }
 
