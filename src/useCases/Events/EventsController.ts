@@ -29,7 +29,7 @@ export class EventsController {
         return response.status(200).send(Object.values(data));
       } catch (error) {
         // No providers left, raising last error
-        if (providerIndex === this.eventsUseCase.contractProvider.web3Providers.length - 1) {
+        if (providerIndex === this.eventsUseCase.contractProvider.web3EventsProviders.length - 1) {
           return response.status(500).json({
             message: error.message || 'Unexpected contract call error.'
           });
