@@ -19,7 +19,7 @@
     "express": "^4.17.1",
     "handy-redis": "^2.3.1",
     "morgan": "^1.10.0",
-    "polkamarkets-js": "polkamarkets/polkamarkets-js#feat/upgrade-querier-js",
+    "polkamarkets-js": "polkamarkets/polkamarkets-js#feat/rewards",
     "redis": "^3.1.2",
     "yup": "^0.32.9"
   },

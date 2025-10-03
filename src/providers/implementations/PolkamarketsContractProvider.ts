@@ -65,8 +65,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return this.polkamarkets.getPredictionMarketV2Contract({ contractAddress: address });
     } else if (contract === 'predictionMarketV3') {
       return this.polkamarkets.getPredictionMarketV3Contract({ contractAddress: address });
-    } else if (contract === 'predictionMarketV3_2') {
-      return this.polkamarkets.getPredictionMarketV3_2Contract({ contractAddress: address });
+    } else if (contract === 'predictionMarketV3_2' || contract === 'predictionMarketV3Plus') {
+      return this.polkamarkets.getPredictionMarketV3PlusContract({ contractAddress: address });
     } else if (contract === 'predictionMarketV3Manager') {
       return this.polkamarkets.getPredictionMarketV3ManagerContract({ contractAddress: address });
     } else if (contract === 'predictionMarketV3Controller') {
@@ -87,6 +87,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return this.polkamarkets.getArbitrationProxyContract({ contractAddress: address });
     } else if (contract === 'fantasyERC20Contract') {
       return this.polkamarkets.getFantasyERC20Contract({ contractAddress: address });
+    } else if (contract === 'merkleRewardsDistributor') {
+      return this.polkamarkets.getMerkleRewardsDistributorContract({ contractAddress: address });
     } else {
       // this should never happen - should be overruled by the controller
       throw `'Contract ${contract} is not defined`;
