@@ -47,5 +47,7 @@ export class ExecuteController {
         }
       }
     }
+
+    return response.status(500).json({ message: 'Unexpected server error' });
   }
 }

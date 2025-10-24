@@ -36,6 +36,8 @@ export class EventsController {
         }
       }
     }
+
+    return response.status(500).json({ message: 'Unexpected server error' });
   }
 
   async handleWorker(request: Request, response: Response): Promise<Response> {
