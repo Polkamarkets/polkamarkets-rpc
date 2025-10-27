@@ -3,19 +3,21 @@ import axios from 'axios';
 export class Etherscan {
   public baseUrl: string;
   public apiKey: string;
+  public chainId: string;
 
   constructor() {
-    if (!process.env.ETHERSCAN_URL || !process.env.ETHERSCAN_API_KEY) throw("ETHERSCAN_URL and ETHERSCAN_API_KEY are not configured")
+    if (!process.env.ETHERSCAN_URL || !process.env.ETHERSCAN_API_KEY || !process.env.ETHERSCAN_CHAIN_ID) throw("ETHERSCAN_URL and ETHERSCAN_API_KEY are not configured")
 
     // var has to be defined
     this.baseUrl = process.env.ETHERSCAN_URL;
+    this.chainId = process.env.ETHERSCAN_CHAIN_ID;
     // fetching random api key from set of keys
     const apiKeys = process.env.ETHERSCAN_API_KEY.split(',');
     this.apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
   }
 
   public async getEvents(contract, address, fromBlock, toBlock, eventName, filter) {
-    let etherscanUrl = `${this.baseUrl}/api?module=logs&action=getLogs&apikey=${this.apiKey}`;
+    let etherscanUrl = `${this.baseUrl}/api?module=logs&action=getLogs&apikey=${this.apiKey}&chainid=${this.chainId}`;
     etherscanUrl += `&address=${address}`;
     if (fromBlock) etherscanUrl += `&fromBlock=${fromBlock}`;
     if (toBlock) etherscanUrl += `&toBlock=${toBlock}`;
@@ -47,7 +49,7 @@ export class Etherscan {
         break;
       } catch (err) {
         // 0.2s cooldown
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 250));
         console.log(`Etherscan :: Error fetching events from ${etherscanUrl}`);
         if (i === attempts - 1) {
           throw err;
