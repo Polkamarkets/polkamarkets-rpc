@@ -22,6 +22,7 @@
       "@services/*": ["./src/services/*"],
       "@useCases/*": ["./src/useCases/*"],
       "@workers/*": ["./src/workers/*"],
+      "@config/*": ["./src/config/*"]
     }
   },
   "include": ["src/**/*"]
