@@ -18,8 +18,9 @@ export class EventsDbService {
     toBlock?: number;
     chunkSize?: number;
     networkId: number;
+    fallback?: boolean;
   }) {
-    const { contractName, contractAddress, eventName, topics, filter, getPastEvents, getBlockNumber, fromBlock, toBlock, chunkSize, networkId } = params;
+    const { contractName, contractAddress, eventName, topics, filter, getPastEvents, getBlockNumber, fromBlock, toBlock, chunkSize, networkId, fallback } = params;
 
     // Query DB by topics
     const useDb = !!db;
@@ -41,43 +42,116 @@ export class EventsDbService {
     const endBlock = (toBlock ?? 'latest') === 'latest' ? await getBlockNumber() : (toBlock as number);
     const maxChunk = Number(chunkSize || 1000);
 
-    // Fetch and insert incrementally (unfiltered), filter for response per chunk
+    // First try a single full-range fetch if fallback flag is set; on limit errors, fall back to chunking
+    const limitMessages = [
+      'logs matched by query exceeds limit of 10000',
+      'Query returned more than 10000 results',
+      '10,000',
+      'Response is too big',
+    ];
+
     const collectedNew: any[] = [];
+    if (fallback) {
+      try {
+        const full = await getPastEvents(eventName, { filter: {}, fromBlock: incrementalFrom, toBlock: 'latest' });
+        if (!Array.isArray(full)) {
+          const rpcError = full;
+          throw rpcError;
+        }
+
+
+        if (useDb && full.length) {
+          const rows = full.map((e: any) => ({
+            networkId,
+            contractAddress: contractAddress.toLowerCase(),
+            contractName,
+            eventName,
+            txHash: e.transactionHash,
+            blockNumber: e.blockNumber,
+            logIndex: e.logIndex,
+            topic0: e.raw?.topics?.[0] || null,
+            topic1: e.raw?.topics?.[1] || null,
+            topic2: e.raw?.topics?.[2] || null,
+            topic3: e.raw?.topics?.[3] || null,
+            data: e,
+          }));
+          const batchSize = Number(process.env.EVENTS_DB_BATCH_SIZE || 100);
+          for (let i = 0; i < rows.length; i += batchSize) {
+            const slice = rows.slice(i, i + batchSize);
+            await db.insert(events).values(slice).onConflictDoNothing({ target: [events.txHash, events.logIndex] });
+          }
+        }
+
+        const filteredFull = this.filterByTopics(full, topics);
+        if (filteredFull.length) {
+          collectedNew.push(...filteredFull);
+        }
+
+        const combinedEvents = (dbEvents as any[]).map((r: any) => r.data).concat(collectedNew);
+        return combinedEvents.sort((a: any, b: any) => a.blockNumber - b.blockNumber);
+      } catch (err: any) {
+        const msg = (err && err.message) ? String(err.message) : '';
+        if (!limitMessages.some(m => msg.includes(m))) {
+          throw err;
+        }
+        // else fall through to chunking
+      }
+    }
+
+    // Fetch and insert incrementally (unfiltered), filter for response per chunk
     let current = incrementalFrom;
+    // helper to insert events in batches
+    const insertBatch = async (chunk: any[]) => {
+      if (!useDb || !chunk.length) return;
+      const rows = chunk.map((e: any) => ({
+        networkId,
+        contractAddress: contractAddress.toLowerCase(),
+        contractName,
+        eventName,
+        txHash: e.transactionHash,
+        blockNumber: e.blockNumber,
+        logIndex: e.logIndex,
+        topic0: e.raw?.topics?.[0] || null,
+        topic1: e.raw?.topics?.[1] || null,
+        topic2: e.raw?.topics?.[2] || null,
+        topic3: e.raw?.topics?.[3] || null,
+        data: e,
+      }));
+      const batchSize = Number(process.env.EVENTS_DB_BATCH_SIZE || 100);
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const slice = rows.slice(i, i + batchSize);
+        await db.insert(events).values(slice).onConflictDoNothing({ target: [events.txHash, events.logIndex] });
+      }
+    };
+
+    // recursive fetcher with bisection on provider limit errors
+    const processRange = async (fromR: number, toR: number) => {
+      try {
+        const chunk = await getPastEvents(eventName, { filter: {}, fromBlock: fromR, toBlock: toR });
+        if (!Array.isArray(chunk)) {
+          const rpcError = chunk;
+          throw rpcError;
+        }
+        await insertBatch(chunk);
+        const filteredChunk = this.filterByTopics(chunk, topics);
+        if (filteredChunk.length) {
+          collectedNew.push(...filteredChunk);
+        }
+      } catch (err: any) {
+        const msg = (err && err.message) ? String(err.message) : '';
+        if (limitMessages.some(m => msg.includes(m)) && fromR < toR) {
+          const mid = Math.floor((fromR + toR) / 2);
+          await processRange(fromR, mid);
+          await processRange(mid + 1, toR);
+          return;
+        }
+        throw err;
+      }
+    };
+
     while (current <= endBlock) {
       const to = Math.min(current + maxChunk - 1, endBlock);
-      const chunk = await getPastEvents(eventName, { filter: {}, fromBlock: current, toBlock: to });
-      if (!Array.isArray(chunk)) break;
-
-      // Insert full event payloads in sub-batches to avoid Neon param size limits
-      if (useDb && chunk.length) {
-        const rows = chunk.map((e: any) => ({
-          networkId,
-          contractAddress: contractAddress.toLowerCase(),
-          contractName,
-          eventName,
-          txHash: e.transactionHash,
-          blockNumber: e.blockNumber,
-          logIndex: e.logIndex,
-          topic0: e.raw?.topics?.[0] || null,
-          topic1: e.raw?.topics?.[1] || null,
-          topic2: e.raw?.topics?.[2] || null,
-          topic3: e.raw?.topics?.[3] || null,
-          data: e,
-        }));
-        const batchSize = Number(process.env.EVENTS_DB_BATCH_SIZE || 100);
-        for (let i = 0; i < rows.length; i += batchSize) {
-          const slice = rows.slice(i, i + batchSize);
-          await db.insert(events).values(slice).onConflictDoNothing({ target: [events.txHash, events.logIndex] });
-        }
-      }
-
-      // Add only matching events to response (as raw event objects)
-      const filteredChunk = this.filterByTopics(chunk, topics);
-      if (filteredChunk.length) {
-        collectedNew.push(...filteredChunk);
-      }
-
+      await processRange(current, to);
       current = to + 1;
       if (process.env.EVENTS_RPC_CHUNK_DELAY_MS) {
         await new Promise(r => setTimeout(r, parseInt(process.env.EVENTS_RPC_CHUNK_DELAY_MS)));

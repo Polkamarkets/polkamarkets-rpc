@@ -193,7 +193,6 @@ export class PolkamarketsContractProvider implements ContractProvider {
     } else if (process.env.NETWORKS_CONFIG) {
       throw new Error('networkId is required when NETWORKS_CONFIG is enabled');
     }
-    this.blockConfig = this.blockConfig || (process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null);
     let etherscanData;
 
     const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
@@ -223,6 +222,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
           // use blockConfig.blockCount as chunk size when available; default 1000
           chunkSize: (this.blockConfig && this.blockConfig['blockCount']) ? this.blockConfig['blockCount'] : 1000,
           networkId: Number(networkId),
+          fallback: !!(this.blockConfig && this.blockConfig['fallback']),
         });
         return combined;
       } catch (err) {
