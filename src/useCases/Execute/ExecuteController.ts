@@ -36,7 +36,7 @@ export class ExecuteController {
           contract,
           method,
           address,
-          networkId,
+          networkId: parsedNetworkId,
           privateKey: decryptedPrivateKey,
           providerIndex,
           args: args || [],
