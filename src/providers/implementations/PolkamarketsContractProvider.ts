@@ -5,7 +5,6 @@ import { Etherscan } from '@services/Etherscan';
 import { RedisService } from '@services/RedisService';
 import { EventsDbService } from '@services/EventsDbService';
 
-import { EventsWorker } from '@workers/EventsWorker';
 import { getNetworkConfigOrThrow, NetworkConfig } from '@config/Networks';
 
 export class PolkamarketsContractProvider implements ContractProvider {
@@ -311,18 +310,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return etherscanData.result;
     }
 
-    // filling up empty redis slots (only verifying for first provider)
-    if (!process.env.DISABLE_QUEUES && providerIndex === 0 && response.slice(0, -1).filter(r => r === null).length > 1) {
-      // some keys are not stored in redis, triggering backfill worker
-      EventsWorker.send(
-        {
-          contract,
-          address,
-          eventName,
-          filter
-        }
-      );
-    }
+    // queues and background workers removed; fetching proceeds inline
 
     await Promise.all(blockRanges.map(async (blockRange, index) => {
       // checking redis if events are cached

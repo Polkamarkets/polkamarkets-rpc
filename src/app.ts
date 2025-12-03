@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 
 import { router } from './routes';
-import { queuesPath, queuesRouter } from './queues';
 
 const app = express();
 
@@ -13,9 +12,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(router);
-if (queuesRouter && queuesPath) {
-  app.use(queuesPath, queuesRouter);
-}
 
 // Centralized error handler so requests return 500 instead of crashing
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

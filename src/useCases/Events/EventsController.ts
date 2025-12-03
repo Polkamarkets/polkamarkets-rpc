@@ -4,7 +4,6 @@ import { EventsDTO } from './EventsDTO';
 import { EventsUseCase } from './EventsUseCase';
 import { getNetworkConfigOrThrow } from '@config/Networks';
 
-import { EventsWorker } from '@workers/EventsWorker';
 export class EventsController {
   constructor(private eventsUseCase: EventsUseCase) {}
 
@@ -53,21 +52,4 @@ export class EventsController {
     return response.status(500).json({ message: 'Unexpected server error' });
   }
 
-  async handleWorker(request: Request, response: Response): Promise<Response> {
-    const { contract, eventName, filter, address } = request.query;
-
-    EventsWorker.send(
-      {
-        contract,
-        address,
-        eventName,
-        filter: filter ? JSON.parse(filter as string) : {}
-      },
-      {
-        priority: 1
-      }
-    );
-
-    return response.status(204).send(null);
-  }
 }

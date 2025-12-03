@@ -22,12 +22,6 @@ router.get(
   }
 );
 
-router.post(
-  '/events',
-  validateObjectSchema(eventsSchema),
-  (request, response) => {
-    return eventsController.handleWorker(request, response);
-  }
-);
+// background worker endpoint removed
 
 export { router };
