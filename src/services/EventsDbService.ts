@@ -45,9 +45,10 @@ export class EventsDbService {
     // First try a single full-range fetch if fallback flag is set; on limit errors, fall back to chunking
     const limitMessages = [
       'logs matched by query exceeds limit of 10000',
-      'Query returned more than 10000 results',
+      'query returned more than 10000 results',
       '10,000',
-      'Response is too big',
+      'response is too big',
+      'no backend is currently healthy to serve traffic'
     ];
 
     const collectedNew: any[] = [];
@@ -91,7 +92,7 @@ export class EventsDbService {
         return combinedEvents.sort((a: any, b: any) => a.blockNumber - b.blockNumber);
       } catch (err: any) {
         const msg = (err && err.message) ? String(err.message) : '';
-        if (!limitMessages.some(m => msg.includes(m))) {
+        if (!limitMessages.some(m => msg.toLowerCase().includes(m))) {
           throw err;
         }
         // else fall through to chunking
@@ -139,7 +140,7 @@ export class EventsDbService {
         }
       } catch (err: any) {
         const msg = (err && err.message) ? String(err.message) : '';
-        if (limitMessages.some(m => msg.includes(m)) && fromR < toR) {
+        if (limitMessages.some(m => msg.toLowerCase().includes(m)) && fromR < toR) {
           const mid = Math.floor((fromR + toR) / 2);
           await processRange(fromR, mid);
           await processRange(mid + 1, toR);

@@ -20,7 +20,9 @@ module.exports = {
           '@providers': './src/providers',
           '@services': './src/services',
           '@useCases': './src/useCases',
-          '@workers': './src/workers'
+          '@workers': './src/workers',
+          '@config': './src/config',
+          '@db': './src/db'
         }
       }
     ]
