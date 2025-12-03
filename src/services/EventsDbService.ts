@@ -19,8 +19,9 @@ export class EventsDbService {
     chunkSize?: number;
     networkId: number;
     fallback?: boolean;
+    startFromBlock?: number;
   }) {
-    const { contractName, contractAddress, eventName, topics, filter, getPastEvents, getBlockNumber, fromBlock, toBlock, chunkSize, networkId, fallback } = params;
+    const { contractName, contractAddress, eventName, topics, filter, getPastEvents, getBlockNumber, fromBlock, toBlock, chunkSize, networkId, fallback, startFromBlock } = params;
 
     // Query DB by topics
     const useDb = !!db;
@@ -36,9 +37,11 @@ export class EventsDbService {
       toBlock,
     }) : [];
 
-    // Determine incremental start
+    // Determine incremental windows
     const maxDbBlock = useDb ? await this.getMaxBlockNumber(contractAddress, eventName, networkId) : null;
-    const incrementalFrom = typeof maxDbBlock === 'number' ? maxDbBlock + 1 : (fromBlock ?? 0);
+    const incrementalFrom = typeof maxDbBlock === 'number'
+      ? (maxDbBlock + 1)
+      : (typeof startFromBlock === 'number' ? startFromBlock : 0);
     const endBlock = (toBlock ?? 'latest') === 'latest' ? await getBlockNumber() : (toBlock as number);
     const maxChunk = Number(chunkSize || 1000);
 
@@ -88,7 +91,8 @@ export class EventsDbService {
           collectedNew.push(...filteredFull);
         }
 
-        const combinedEvents = (dbEvents as any[]).map((r: any) => r.data).concat(collectedNew);
+        let combinedEvents = (dbEvents as any[]).map((r: any) => r.data).concat(collectedNew);
+        combinedEvents = this.filterByBlockRange(combinedEvents, fromBlock, toBlock);
         return combinedEvents.sort((a: any, b: any) => a.blockNumber - b.blockNumber);
       } catch (err: any) {
         const msg = (err && err.message) ? String(err.message) : '';
@@ -99,7 +103,7 @@ export class EventsDbService {
       }
     }
 
-    // Fetch and insert incrementally (unfiltered), filter for response per chunk
+    // Fetch and insert incrementally (unfiltered), filter for response per chunk (forward fill)
     let current = incrementalFrom;
     // helper to insert events in batches
     const insertBatch = async (chunk: any[]) => {
@@ -160,7 +164,8 @@ export class EventsDbService {
     }
 
     // Return combined as raw events, sorted by blockNumber
-    const combinedEvents = (dbEvents as any[]).map((r: any) => r.data).concat(collectedNew);
+    let combinedEvents = (dbEvents as any[]).map((r: any) => r.data).concat(collectedNew);
+    combinedEvents = this.filterByBlockRange(combinedEvents, fromBlock, toBlock);
     return combinedEvents.sort((a: any, b: any) => a.blockNumber - b.blockNumber);
   }
 
@@ -190,6 +195,16 @@ export class EventsDbService {
           : and(eq(events.networkId, networkId as number), eq(events.contractAddress, contractAddress.toLowerCase()))
       );
     return (rows?.[0]?.maxBlock as unknown as number | null) ?? null;
+  }
+
+  private filterByBlockRange(fetched: any[], fromBlock?: number, toBlock?: number) {
+    if (typeof fromBlock !== 'number' && typeof toBlock !== 'number') return fetched;
+    return fetched.filter(ev => {
+      const bn = ev.blockNumber;
+      if (typeof fromBlock === 'number' && bn < fromBlock) return false;
+      if (typeof toBlock === 'number' && bn > toBlock) return false;
+      return true;
+    });
   }
 
   private async queryByTopics(params: {

@@ -221,6 +221,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
           chunkSize: (this.blockConfig && this.blockConfig['blockCount']) ? this.blockConfig['blockCount'] : 1000,
           networkId: Number(networkId),
           fallback: !!(this.blockConfig && this.blockConfig['fallback']),
+          startFromBlock: (this.blockConfig && this.blockConfig['fromBlock']) ? this.blockConfig['fromBlock'] : 0
         });
         return combined;
       } catch (err) {
