@@ -6,4 +6,5 @@ export interface CallDTO {
   args: any;
   address: any;
   providerIndex: any;
+  networkId: number;
 }

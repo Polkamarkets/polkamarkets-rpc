@@ -17,12 +17,14 @@ export class EventsDbService {
     fromBlock?: number;
     toBlock?: number;
     chunkSize?: number;
+    networkId: number;
   }) {
-    const { contractName, contractAddress, eventName, topics, filter, getPastEvents, getBlockNumber, fromBlock, toBlock, chunkSize } = params;
+    const { contractName, contractAddress, eventName, topics, filter, getPastEvents, getBlockNumber, fromBlock, toBlock, chunkSize, networkId } = params;
 
     // Query DB by topics
     const useDb = !!db;
     const dbEvents = useDb ? await this.queryByTopics({
+      networkId,
       contractAddress,
       eventName,
       topic0: topics[0] || undefined,
@@ -34,7 +36,7 @@ export class EventsDbService {
     }) : [];
 
     // Determine incremental start
-    const maxDbBlock = useDb ? await this.getMaxBlockNumber(contractAddress, eventName) : null;
+    const maxDbBlock = useDb ? await this.getMaxBlockNumber(contractAddress, eventName, networkId) : null;
     const incrementalFrom = typeof maxDbBlock === 'number' ? maxDbBlock + 1 : (fromBlock ?? 0);
     const endBlock = (toBlock ?? 'latest') === 'latest' ? await getBlockNumber() : (toBlock as number);
     const maxChunk = Number(chunkSize || 1000);
@@ -50,6 +52,7 @@ export class EventsDbService {
       // Insert full event payloads in sub-batches to avoid Neon param size limits
       if (useDb && chunk.length) {
         const rows = chunk.map((e: any) => ({
+          networkId,
           contractAddress: contractAddress.toLowerCase(),
           contractName,
           eventName,
@@ -69,11 +72,10 @@ export class EventsDbService {
         }
       }
 
-      // Add only matching events to response, shaped like DB rows for consistency
+      // Add only matching events to response (as raw event objects)
       const filteredChunk = this.filterByTopics(chunk, topics);
       if (filteredChunk.length) {
-        const mapped = filteredChunk.map((e: any) => ({ data: e }));
-        collectedNew.push(...mapped);
+        collectedNew.push(...filteredChunk);
       }
 
       current = to + 1;
@@ -82,8 +84,9 @@ export class EventsDbService {
       }
     }
 
-    // Return combined
-    return dbEvents.concat(collectedNew).sort((a: any, b: any) => a.blockNumber - b.blockNumber).map((e: any) => e.data);
+    // Return combined as raw events, sorted by blockNumber
+    const combinedEvents = (dbEvents as any[]).map((r: any) => r.data).concat(collectedNew);
+    return combinedEvents.sort((a: any, b: any) => a.blockNumber - b.blockNumber);
   }
 
   // keep helper to filter fetched events by topics
@@ -102,19 +105,20 @@ export class EventsDbService {
     });
   }
 
-  private async getMaxBlockNumber(contractAddress: string, eventName?: string): Promise<number | null> {
+  private async getMaxBlockNumber(contractAddress: string, eventName?: string, networkId?: number): Promise<number | null> {
     const rows = await db!
       .select({ maxBlock: max(events.blockNumber) })
       .from(events)
       .where(
         eventName
-          ? and(eq(events.contractAddress, contractAddress.toLowerCase()), eq(events.eventName, eventName))
-          : eq(events.contractAddress, contractAddress.toLowerCase())
+          ? and(eq(events.networkId, networkId as number), eq(events.contractAddress, contractAddress.toLowerCase()), eq(events.eventName, eventName))
+          : and(eq(events.networkId, networkId as number), eq(events.contractAddress, contractAddress.toLowerCase()))
       );
     return (rows?.[0]?.maxBlock as unknown as number | null) ?? null;
   }
 
   private async queryByTopics(params: {
+    networkId: number;
     contractAddress: string;
     eventName?: string;
     topic0?: string;
@@ -125,8 +129,8 @@ export class EventsDbService {
     toBlock?: number;
     limit?: number;
   }) {
-    const { contractAddress, eventName, topic0, topic1, topic2, topic3, fromBlock, toBlock, limit } = params;
-    const conditions = [eq(events.contractAddress, contractAddress.toLowerCase())] as any[];
+    const { networkId, contractAddress, eventName, topic0, topic1, topic2, topic3, fromBlock, toBlock, limit } = params;
+    const conditions = [eq(events.networkId, networkId), eq(events.contractAddress, contractAddress.toLowerCase())] as any[];
     if (eventName) conditions.push(eq(events.eventName, eventName));
     if (topic0) conditions.push(eq(events.topic0, topic0.toLowerCase()));
     if (topic1) conditions.push(eq(events.topic1, topic1.toLowerCase()));

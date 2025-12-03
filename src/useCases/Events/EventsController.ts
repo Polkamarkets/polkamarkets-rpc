@@ -2,13 +2,25 @@ import { Request, Response } from 'express';
 import { EventsDTO } from './EventsDTO';
 
 import { EventsUseCase } from './EventsUseCase';
+import { getNetworkConfigOrThrow } from '@config/Networks';
 
 import { EventsWorker } from '@workers/EventsWorker';
 export class EventsController {
   constructor(private eventsUseCase: EventsUseCase) {}
 
   async handle(request: Request, response: Response): Promise<Response> {
-    const { contract, eventName, filter, address, fromBlock, toBlock } = request.query;
+    const { contract, eventName, filter, address, fromBlock, toBlock, networkId } = request.query;
+    if (networkId === undefined || networkId === null) {
+      return response.status(400).json({ message: 'networkId is required' });
+    }
+    const parsedNetworkId = parseInt(networkId as string);
+    if (Number.isNaN(parsedNetworkId)) {
+      return response.status(400).json({ message: 'networkId must be a number' });
+    }
+
+    // validate and set network
+    try { getNetworkConfigOrThrow(parsedNetworkId); } catch (e:any) { return response.status(400).json({ message: e.message }); }
+    this.eventsUseCase.contractProvider.useNetwork(parsedNetworkId);
 
     for(let providerIndex = 0; providerIndex < this.eventsUseCase.contractProvider.web3EventsProviders.length; providerIndex++) {
       try {
@@ -19,6 +31,7 @@ export class EventsController {
           providerIndex,
           fromBlock,
           toBlock,
+          networkId: parsedNetworkId,
           filter: filter ? JSON.parse(filter as string) : {}
         } as EventsDTO);
 

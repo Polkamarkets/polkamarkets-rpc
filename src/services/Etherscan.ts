@@ -5,15 +5,16 @@ export class Etherscan {
   public apiKey: string;
   public chainId: string;
 
-  constructor() {
-    if (!process.env.ETHERSCAN_URL || !process.env.ETHERSCAN_API_KEY || !process.env.ETHERSCAN_CHAIN_ID) throw("ETHERSCAN_URL and ETHERSCAN_API_KEY are not configured")
-
-    // var has to be defined
-    this.baseUrl = process.env.ETHERSCAN_URL;
-    this.chainId = process.env.ETHERSCAN_CHAIN_ID;
-    // fetching random api key from set of keys
+  constructor(opts?: { chainId?: string }) {
+    // v2 base URL is fixed
+    this.baseUrl = 'https://api.etherscan.io/v2';
+    // require API keys from env (shared, outside multichain config)
+    if (!process.env.ETHERSCAN_API_KEY) throw('ETHERSCAN_API_KEY is not configured');
     const apiKeys = process.env.ETHERSCAN_API_KEY.split(',');
     this.apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
+    // chain id can be passed per-network, else from env
+    this.chainId = (opts && opts.chainId) || process.env.ETHERSCAN_CHAIN_ID;
+    if (!this.chainId) throw('ETHERSCAN_CHAIN_ID is not configured');
   }
 
   public async getEvents(contract, address, fromBlock, toBlock, eventName, filter) {

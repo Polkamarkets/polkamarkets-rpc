@@ -6,6 +6,7 @@ export interface ExecuteDTO {
   args: any;
   address: any;
   providerIndex: any;
+  networkId: number;
   privateKey: string;
   timestamp: string;
 }

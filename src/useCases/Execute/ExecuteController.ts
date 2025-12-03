@@ -3,14 +3,22 @@ import { ExecuteDTO } from './ExecuteDTO';
 
 import { ExecuteUseCase } from './ExecuteUseCase';
 import { EncryptionService } from '../../services/Encryption';
+import { getNetworkConfigOrThrow } from '@config/Networks';
 
 export class ExecuteController {
   constructor(private executeUseCase: ExecuteUseCase) {}
 
   async handle(request: Request, response: Response): Promise<Response> {
-    const { contract, method, args, address, privateKey, timestamp } = request.body;
+    const { contract, method, args, address, privateKey, timestamp, networkId } = request.body;
+    if (networkId === undefined || networkId === null) {
+      return response.status(400).json({ message: 'networkId is required' });
+    }
 
     const encryptionService = new EncryptionService();
+    // validate and set network
+    const parsedNetworkId = parseInt(networkId as string);
+    try { getNetworkConfigOrThrow(parsedNetworkId); } catch (e:any) { return response.status(400).json({ message: e.message }); }
+    this.executeUseCase.contractProvider.useNetwork(parsedNetworkId);
     // decrypt private key and validate timestamp
     const decryptedPrivateKey = encryptionService.decrypt(privateKey);
     const decryptedTimestamp = encryptionService.decrypt(timestamp);
@@ -28,6 +36,7 @@ export class ExecuteController {
           contract,
           method,
           address,
+          networkId,
           privateKey: decryptedPrivateKey,
           providerIndex,
           args: args || [],

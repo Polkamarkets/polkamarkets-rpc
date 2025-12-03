@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { CallDTO } from './CallDTO';
 
 import { CallUseCase } from './CallUseCase';
+import { getNetworkConfigOrThrow } from '@config/Networks';
 
 export class CallController {
   constructor(private callUseCase: CallUseCase) {}
@@ -71,7 +72,18 @@ export class CallController {
   }
 
   async handle(request: Request, response: Response): Promise<Response> {
-    const { contract, method, args, address } = request.query;
+    const { contract, method, args, address, networkId } = request.query;
+    if (networkId === undefined || networkId === null) {
+      return response.status(400).json({ message: 'networkId is required' });
+    }
+    const parsedNetworkId = parseInt(networkId as string);
+    if (Number.isNaN(parsedNetworkId)) {
+      return response.status(400).json({ message: 'networkId must be a number' });
+    }
+
+    // validate and set network
+    try { getNetworkConfigOrThrow(parsedNetworkId); } catch (e:any) { return response.status(400).json({ message: e.message }); }
+    this.callUseCase.contractProvider.useNetwork(parsedNetworkId);
 
     for(let providerIndex = 0; providerIndex < this.callUseCase.contractProvider.web3Providers.length; providerIndex++) {
       try {
@@ -79,6 +91,7 @@ export class CallController {
           contract,
           method,
           address,
+          networkId: parsedNetworkId,
           providerIndex,
           args: this.parseArguments(args as string)
         } as CallDTO);

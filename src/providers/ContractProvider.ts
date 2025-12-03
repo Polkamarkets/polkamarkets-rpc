@@ -7,8 +7,10 @@ export interface ContractProvider {
     eventName: string,
     filter: Object,
     fromBlock?: string,
-    toBlock?: string
+    toBlock?: string,
+    networkId?: number
   ) => any;
   web3Providers: string[];
   web3EventsProviders: string[];
+  useNetwork: (networkId: number) => void;
 }

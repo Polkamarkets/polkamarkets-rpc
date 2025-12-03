@@ -6,6 +6,7 @@ import { RedisService } from '@services/RedisService';
 import { EventsDbService } from '@services/EventsDbService';
 
 import { EventsWorker } from '@workers/EventsWorker';
+import { getNetworkConfigOrThrow, NetworkConfig } from '@config/Networks';
 
 export class PolkamarketsContractProvider implements ContractProvider {
   public polkamarkets: any;
@@ -15,6 +16,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
   public web3EventsProviders: Array<string>;
 
   public useEtherscan: boolean;
+  public etherscanConfig?: NetworkConfig['etherscan'];
 
   public etherscanSkipWrite: boolean;
 
@@ -23,12 +25,12 @@ export class PolkamarketsContractProvider implements ContractProvider {
   public limitMessages: Array<string>;
 
   constructor() {
-    // providers are comma separated
-    this.web3Providers = process.env.WEB3_PROVIDER.split(',');
-    this.web3EventsProviders = process.env.WEB3_EVENTS_PROVIDER ? process.env.WEB3_EVENTS_PROVIDER.split(',') : this.web3Providers;
-    this.useEtherscan = !!(process.env.ETHERSCAN_URL && process.env.ETHERSCAN_API_KEY);
+    // will be set via useNetwork()
+    this.web3Providers = [];
+    this.web3EventsProviders = [];
+    this.useEtherscan = false;
     this.etherscanSkipWrite = !!(process.env.ETHERSCAN_SKIP_WRITE);
-    this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
+    this.blockConfig = null;
     this.limitMessages = [
       'logs matched by query exceeds limit of 10000',
       'Query returned more than 10000 results',
@@ -36,6 +38,15 @@ export class PolkamarketsContractProvider implements ContractProvider {
       'Response is too big',
       // 'Returned error: service temporarily unavailable, retry in 10m0s'
     ];
+  }
+
+  public useNetwork(networkId: number) {
+    const cfg = getNetworkConfigOrThrow(networkId);
+    this.web3Providers = cfg.web3Providers;
+    this.web3EventsProviders = cfg.web3EventsProviders && cfg.web3EventsProviders.length ? cfg.web3EventsProviders : this.web3Providers;
+    this.blockConfig = cfg.blockConfig || null;
+    this.useEtherscan = !!(cfg.etherscan && cfg.etherscan.enabled);
+    this.etherscanConfig = cfg.etherscan;
   }
 
   public initializePolkamarkets(web3ProviderIndex: number, privateKey?: string, web3EventsProviderIndex?: number) {
@@ -173,10 +184,17 @@ export class PolkamarketsContractProvider implements ContractProvider {
     eventName: string,
     filter: Object,
     fromBlock?: string,
-    toBlock?: string
+    toBlock?: string,
+    networkId?: number
   ) {
     const polkamarketsContract = this.getContract(contract, address, providerIndex, undefined, providerIndex);
-    this.blockConfig = process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null;
+    // If multichain config is being used, ensure network is set
+    if (typeof networkId === 'number' && !Number.isNaN(networkId)) {
+      this.useNetwork(networkId);
+    } else if (process.env.NETWORKS_CONFIG) {
+      throw new Error('networkId is required when NETWORKS_CONFIG is enabled');
+    }
+    this.blockConfig = this.blockConfig || (process.env.WEB3_PROVIDER_BLOCK_CONFIG ? JSON.parse(process.env.WEB3_PROVIDER_BLOCK_CONFIG) : null);
     let etherscanData;
 
     const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
@@ -205,6 +223,7 @@ export class PolkamarketsContractProvider implements ContractProvider {
           toBlock: queryToBlock === 'latest' ? undefined : (typeof queryToBlock === 'string' ? parseInt(queryToBlock) : queryToBlock),
           // use blockConfig.blockCount as chunk size when available; default 1000
           chunkSize: (this.blockConfig && this.blockConfig['blockCount']) ? this.blockConfig['blockCount'] : 1000,
+          networkId: Number(networkId),
         });
         return combined;
       } catch (err) {
@@ -230,7 +249,10 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     if (this.useEtherscan) {
       try {
-        etherscanData = await (new Etherscan().getEvents(polkamarketsContract, address, queryFromBlock, queryToBlock, eventName, filter));
+        const scanner = this.etherscanConfig
+          ? new Etherscan({ chainId: this.etherscanConfig.chainId })
+          : new Etherscan();
+        etherscanData = await (scanner.getEvents(polkamarketsContract, address, queryFromBlock, queryToBlock, eventName, filter));
       } catch (err) {
         // error fetching data from etherscan, taking RPC route
       }

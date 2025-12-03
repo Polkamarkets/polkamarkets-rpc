@@ -8,6 +8,7 @@ export interface EventsDTO {
   };
   address: string;
   providerIndex: any;
+  networkId: number;
   fromBlock?: string;
   toBlock?: string;
 }
