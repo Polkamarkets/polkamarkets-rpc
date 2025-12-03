@@ -27,5 +27,3 @@ export const events = pgTable('events', {
     byTxHash: index('idx_events_tx_hash').on(table.txHash),
   };
 });
-
-import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';

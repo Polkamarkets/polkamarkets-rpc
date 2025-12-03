@@ -3,6 +3,7 @@ import * as polkamarketsjs from 'polkamarkets-js';
 import { ContractProvider } from '@providers/ContractProvider';
 import { Etherscan } from '@services/Etherscan';
 import { RedisService } from '@services/RedisService';
+import { EventsDbService } from '@services/EventsDbService';
 
 import { EventsWorker } from '@workers/EventsWorker';
 
@@ -181,6 +182,36 @@ export class PolkamarketsContractProvider implements ContractProvider {
     const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
     const queryToBlock = toBlock || 'latest';
 
+    // New path (gated): DB-first by topics, then top up via RPC
+    const useDb = (process.env.USE_DATABASE === 'true' || process.env.USE_DATABASE === '1') && !!process.env.DATABASE_URL;
+    if (useDb) {
+      try {
+        const eventOptions = polkamarketsContract.getContract()._generateEventOptions(eventName, {
+          filter,
+          fromBlock: queryFromBlock,
+          toBlock: queryToBlock,
+        });
+        const topics = eventOptions.params.topics.slice(0, 4);
+        const dbService = new EventsDbService();
+        const combined = await dbService.queryAndTopUp({
+          contractName: contract,
+          contractAddress: address,
+          eventName,
+          topics,
+          filter,
+          getPastEvents: (name, opts) => polkamarketsContract.getContract().getPastEvents(name, opts),
+          getBlockNumber: () => polkamarketsContract.web3.eth.getBlockNumber(),
+          fromBlock: typeof queryFromBlock === 'string' ? parseInt(queryFromBlock) : queryFromBlock,
+          toBlock: queryToBlock === 'latest' ? undefined : (typeof queryToBlock === 'string' ? parseInt(queryToBlock) : queryToBlock),
+          // use blockConfig.blockCount as chunk size when available; default 1000
+          chunkSize: (this.blockConfig && this.blockConfig['blockCount']) ? this.blockConfig['blockCount'] : 1000,
+        });
+        return combined;
+      } catch (err) {
+        // fallback to legacy behavior below
+      }
+    }
+
     if (!this.blockConfig || !this.blockConfig['blockCount'] || this.blockConfig['fallback']) {
       // no block config, querying directly in evm
       try {
@@ -213,7 +244,6 @@ export class PolkamarketsContractProvider implements ContractProvider {
     const keys = blockRanges.map((blockRange) => this.blockRangeCacheKey(contract, address, eventName, filter, blockRange));
 
     const response = await readClient.mget(...keys).catch(err => {
-      console.log(err);
       readClient.end();
       throw(err);
     });
@@ -247,7 +277,6 @@ export class PolkamarketsContractProvider implements ContractProvider {
           // writing to redis (using N set calls instead of mset to set a ttl)
           await Promise.all(writeKeys.map(async (item) => {
             await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
-              console.log(err);
               writeClient.end();
               throw(err);
             });
@@ -306,7 +335,6 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
           const key = this.blockRangeCacheKey(contract, address, eventName, filter, blockRange);
           await writeClient.set(key, JSON.stringify(blockEvents), 'EX', 60 * 60 * 24 * 2).catch(err => {
-            console.log(err);
             writeClient.end();
             throw(err);
           });
