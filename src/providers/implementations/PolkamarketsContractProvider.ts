@@ -2,7 +2,6 @@ import * as polkamarketsjs from 'polkamarkets-js';
 
 import { ContractProvider } from '@providers/ContractProvider';
 import { Etherscan } from '@services/Etherscan';
-import { RedisService } from '@services/RedisService';
 import { EventsDbService } from '@services/EventsDbService';
 
 import { getNetworkConfigOrThrow, NetworkConfig } from '@config/Networks';
@@ -198,9 +197,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
     const queryFromBlock = fromBlock || (this.blockConfig ? this.blockConfig['fromBlock'] : 0);
     const queryToBlock = toBlock || 'latest';
 
-    // New path (gated): DB-first by topics, then top up via RPC
-    const useDb = (process.env.USE_DATABASE === 'true' || process.env.USE_DATABASE === '1') && !!process.env.DATABASE_URL;
-    if (useDb) {
+    // DB-first by topics, then top up via RPC
+    if (process.env.DATABASE_URL) {
       try {
         const eventOptions = polkamarketsContract.getContract()._generateEventOptions(eventName, {
           filter,
@@ -244,8 +242,6 @@ export class PolkamarketsContractProvider implements ContractProvider {
       }
     }
 
-    const readClient = new RedisService().client;
-
     if (this.useEtherscan) {
       try {
         const scanner = this.etherscanConfig
@@ -264,94 +260,28 @@ export class PolkamarketsContractProvider implements ContractProvider {
 
     const keys = blockRanges.map((blockRange) => this.blockRangeCacheKey(contract, address, eventName, filter, blockRange));
 
-    const response = await readClient.mget(...keys).catch(err => {
-      readClient.end();
-      throw(err);
-    });
-
-    // closing connection after request is finished
-    readClient.end();
-
     // successful etherscan call
     if (etherscanData && !etherscanData.maxLimitReached) {
-      if (!fromBlock && !toBlock && !this.etherscanSkipWrite) {
-        // filling up empty redis slots
-        const writeKeys: Array<[key: string, value: string]> = [];
-
-        keys.forEach((key, index) => {
-          const result = response[index];
-          const fromBlock = parseInt(key.split(':').pop().split('-')[0]);
-          const toBlock = parseInt(key.split(':').pop().split('-')[1]);
-
-          if (!result && (toBlock % this.blockConfig['blockCount'] === 0)) {
-            // key not stored in redis
-            writeKeys.push([
-              key,
-              JSON.stringify(etherscanData.result.filter(e => e.blockNumber >= fromBlock && e.blockNumber <= toBlock))
-            ]);
-          }
-        });
-
-        if (writeKeys.length > 0 ) {
-          const writeClient = new RedisService().client;
-
-          // writing to redis (using N set calls instead of mset to set a ttl)
-          await Promise.all(writeKeys.map(async (item) => {
-            await writeClient.set(item[0], item[1], 'EX', 60 * 60 * 24 * 2).catch(err => {
-              writeClient.end();
-              throw(err);
-            });
-          }));
-
-          writeClient.end();
-        }
-      }
-
       return etherscanData.result;
     }
 
     // queues and background workers removed; fetching proceeds inline
 
-    await Promise.all(blockRanges.map(async (blockRange, index) => {
-      // checking redis if events are cached
-      const result = response[index];
+    await Promise.all(blockRanges.map(async (blockRange) => {
       let blockEvents;
-
-      if (result) {
-        blockEvents = JSON.parse(result);
-      } else {
-        try {
-          blockEvents = await this.getBlockRangeEvents(
-            polkamarketsContract,
-            filter,
-            eventName,
-            blockRange.fromBlock,
-            blockRange.toBlock
-          );
-        } catch (err) {
-          // non-blocking, error will be thrown after all calls are performed
-          rpcError = err;
-          return;
-        }
-
-        // not writing to cache if block range is not complete
-        if (blockRange.toBlock % this.blockConfig['blockCount'] === 0) {
-          const writeClient = new RedisService().client;
-          writeClient.nodeRedis.on("error", err => {
-            // redis connection error, ignoring and letting the get/set functions error handlers act
-            console.log("ERR :: Redis Connection: " + err);
-            writeClient.end();
-          });
-
-          const key = this.blockRangeCacheKey(contract, address, eventName, filter, blockRange);
-          await writeClient.set(key, JSON.stringify(blockEvents), 'EX', 60 * 60 * 24 * 2).catch(err => {
-            writeClient.end();
-            throw(err);
-          });
-          writeClient.end();
-        }
+      try {
+        blockEvents = await this.getBlockRangeEvents(
+          polkamarketsContract,
+          filter,
+          eventName,
+          blockRange.fromBlock,
+          blockRange.toBlock
+        );
+      } catch (err) {
+        // non-blocking, error will be thrown after all calls are performed
+        rpcError = err;
+        return;
       }
-
       events = blockEvents.concat(events);
     }));
 
