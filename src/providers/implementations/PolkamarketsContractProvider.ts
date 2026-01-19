@@ -213,8 +213,47 @@ export class PolkamarketsContractProvider implements ContractProvider {
           eventName,
           topics,
           filter,
-          getPastEvents: (name, opts) => polkamarketsContract.getContract().getPastEvents(name, opts),
-          getBlockNumber: () => polkamarketsContract.web3.eth.getBlockNumber(),
+          getPastEvents: (name, opts) => {
+            let rpcProvider: string = 'unknown';
+            try {
+              rpcProvider = (this.web3EventsProviders && this.web3EventsProviders.length
+                ? this.web3EventsProviders[providerIndex]
+                : this.web3Providers[providerIndex]) as string;
+              console.log(`[getPastEvents] provider=${rpcProvider} event=${name} fromBlock=${opts?.fromBlock} toBlock=${opts?.toBlock} filter=${JSON.stringify(opts?.filter ?? {})}`);
+            } catch (_) {
+              // ignore logging errors
+            }
+            return polkamarketsContract.getContract().getPastEvents(name, opts).catch((err: any) => {
+              try {
+                console.log(`[getPastEvents:error] provider=${rpcProvider} event=${name} fromBlock=${opts?.fromBlock} toBlock=${opts?.toBlock} filter=${JSON.stringify(opts?.filter ?? {})} error=${err}`);
+              } catch (_) {
+                // ignore logging errors
+              }
+              throw err;
+            });
+          },
+          getBlockNumber: async () => {
+            let rpcProvider: string = 'unknown';
+            try {
+              rpcProvider = (this.web3EventsProviders && this.web3EventsProviders.length
+                ? this.web3EventsProviders[providerIndex]
+                : this.web3Providers[providerIndex]) as string;
+              console.log(`[rpc] provider=${rpcProvider} method=getBlockNumber`);
+            } catch (_) {
+              // ignore logging errors
+            }
+            try {
+              const bn = await polkamarketsContract.web3.eth.getBlockNumber();
+              return bn;
+            } catch (err) {
+              try {
+                console.log(`[rpc:error] provider=${rpcProvider} method=getBlockNumber error=${err}`);
+              } catch (_) {
+                // ignore
+              }
+              throw err;
+            }
+          },
           fromBlock: typeof queryFromBlock === 'string' ? parseInt(queryFromBlock) : queryFromBlock,
           toBlock: queryToBlock === 'latest' ? undefined : (typeof queryToBlock === 'string' ? parseInt(queryToBlock) : queryToBlock),
           // use blockConfig.blockCount as chunk size when available; default 1000
@@ -225,19 +264,43 @@ export class PolkamarketsContractProvider implements ContractProvider {
         });
         return combined;
       } catch (err) {
-        // fallback to legacy behavior below
+        try {
+          const rpcProvider = this.web3EventsProviders && this.web3EventsProviders.length
+            ? this.web3EventsProviders[providerIndex]
+            : this.web3Providers[providerIndex];
+          console.log(`[DB events error] provider=${rpcProvider} event=${eventName} error=${err}`);
+        } catch (_) {
+          console.log(`Error querying ${eventName} events from DB: ${err}`);
+        }
+        throw(err);
       }
     }
 
     if (!this.blockConfig || !this.blockConfig['blockCount'] || this.blockConfig['fallback']) {
       // no block config, querying directly in evm
       try {
+        try {
+          const rpcProvider = this.web3EventsProviders && this.web3EventsProviders.length
+            ? this.web3EventsProviders[providerIndex]
+            : this.web3Providers[providerIndex];
+          console.log(`[getPastEvents] provider=${rpcProvider} event=${eventName} fromBlock=${queryFromBlock} toBlock=${queryToBlock} filter=${JSON.stringify(filter ?? {})}`);
+        } catch (_) {
+          // ignore logging errors
+        }
         const events = await polkamarketsContract.getEvents(eventName, filter, queryFromBlock, queryToBlock);
         return events;
       } catch (err) {
         if (this.blockConfig && this.blockConfig['fallback'] && this.limitMessages.some(m => err.message.includes(m))) {
           // standard error limit reached, using fallback block fetcher
         } else {
+          try {
+            const rpcProvider = this.web3EventsProviders && this.web3EventsProviders.length
+              ? this.web3EventsProviders[providerIndex]
+              : this.web3Providers[providerIndex];
+            console.log(`[getPastEvents:error] provider=${rpcProvider} event=${eventName} fromBlock=${queryFromBlock} toBlock=${queryToBlock} filter=${JSON.stringify(filter ?? {})} error=${err}`);
+          } catch (_) {
+            // ignore logging errors
+          }
           throw(err);
         }
       }
@@ -276,7 +339,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
           filter,
           eventName,
           blockRange.fromBlock,
-          blockRange.toBlock
+          blockRange.toBlock,
+          providerIndex
         );
       } catch (err) {
         // non-blocking, error will be thrown after all calls are performed
@@ -298,8 +362,22 @@ export class PolkamarketsContractProvider implements ContractProvider {
     eventName: string,
     fromBlock: number,
     toBlock: number,
+    providerIndex?: number,
   ) {
     try {
+      try {
+        const rpcProvider = (providerIndex !== undefined)
+          ? ((this.web3EventsProviders && this.web3EventsProviders.length)
+              ? this.web3EventsProviders[providerIndex]
+              : this.web3Providers[providerIndex])
+          : (contract?.web3?.currentProvider?.host
+              || contract?.web3?.currentProvider?.url
+              || contract?.web3?._provider?.url
+              || 'unknown');
+        console.log(`[getPastEvents] provider=${rpcProvider} event=${eventName} fromBlock=${fromBlock} toBlock=${toBlock} filter=${JSON.stringify(filter ?? {})}`);
+      } catch (_) {
+        // ignore logging errors
+      }
       const events = await contract.getContract().getPastEvents(eventName, {
         filter,
         fromBlock,
@@ -315,14 +393,40 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return events;
     } catch (err) {
       if (this.limitMessages.some(m => err.message.includes(m))) {
+        try {
+          const rpcProvider = (providerIndex !== undefined)
+            ? ((this.web3EventsProviders && this.web3EventsProviders.length)
+                ? this.web3EventsProviders[providerIndex]
+                : this.web3Providers[providerIndex])
+            : (contract?.web3?.currentProvider?.host
+                || contract?.web3?.currentProvider?.url
+                || contract?.web3?._provider?.url
+                || 'unknown');
+          console.log(`[getPastEvents:error] provider=${rpcProvider} event=${eventName} fromBlock=${fromBlock} toBlock=${toBlock} filter=${JSON.stringify(filter ?? {})} error=${err}`);
+        } catch (_) {
+          // ignore logging errors
+        }
         // splitting block range in half recursively
         const middleBlock = Math.floor((toBlock + fromBlock) / 2);
-        const leftEvents = await this.getBlockRangeEvents(contract, filter, eventName, fromBlock, middleBlock);
-        const rightEvents = await this.getBlockRangeEvents(contract, filter, eventName, middleBlock + 1, toBlock);
+        const leftEvents = await this.getBlockRangeEvents(contract, filter, eventName, fromBlock, middleBlock, providerIndex);
+        const rightEvents = await this.getBlockRangeEvents(contract, filter, eventName, middleBlock + 1, toBlock, providerIndex);
 
         return leftEvents.concat(rightEvents);
       }
 
+      try {
+        const rpcProvider = (providerIndex !== undefined)
+          ? ((this.web3EventsProviders && this.web3EventsProviders.length)
+              ? this.web3EventsProviders[providerIndex]
+              : this.web3Providers[providerIndex])
+          : (contract?.web3?.currentProvider?.host
+              || contract?.web3?.currentProvider?.url
+              || contract?.web3?._provider?.url
+              || 'unknown');
+        console.log(`[getPastEvents:error] provider=${rpcProvider} event=${eventName} fromBlock=${fromBlock} toBlock=${toBlock} filter=${JSON.stringify(filter ?? {})} error=${err}`);
+      } catch (_) {
+        // ignore logging errors
+      }
       throw(err);
     }
   }
