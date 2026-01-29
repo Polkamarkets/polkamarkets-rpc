@@ -22,7 +22,7 @@
     "express": "^4.17.1",
     "drizzle-orm": "^0.44.4",
     "morgan": "^1.10.0",
-    "polkamarkets-js": "polkamarkets/polkamarkets-js#feat/rewards",
+    "polkamarkets-js": "polkamarkets/polkamarkets-js#eng-2022-improve-polkamarkets-rpc-gas-spending",
     "pg": "^8.16.3",
     "yup": "^0.32.9"
   },
