@@ -73,6 +73,8 @@ export class PolkamarketsContractProvider implements ContractProvider {
       return this.polkamarkets.getPredictionMarketV3ControllerContract({ contractAddress: address });
     } else if (contract === 'predictionMarketV3Querier') {
       return this.polkamarkets.getPredictionMarketV3QuerierContract({ contractAddress: address });
+    } else if (contract === 'multicall3') {
+      return this.polkamarkets.getMulticall3Contract({ contractAddress: address });
     } else if (contract === 'erc20') {
       return this.polkamarkets.getERC20Contract({ contractAddress: address });
     } else if (contract === 'realitio') {
