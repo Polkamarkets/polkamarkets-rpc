@@ -1,1 +1,17 @@
-export type Contract = 'predictionMarket' | 'predictionMarketV2' | 'predictionMarketV3' | 'predictionMarketV3_2' | 'predictionMarketV3Plus' | 'predictionMarketV3Manager' | 'predictionMarketV3Controller' | 'predictionMarketV3Querier' | 'erc20' | 'realitio' | 'achievements' | 'voting' | 'arbitration' | 'arbitrationProxy' | 'merkleRewardsDistributor';
+export type Contract =
+  | 'predictionMarket'
+  | 'predictionMarketV2'
+  | 'predictionMarketV3'
+  | 'predictionMarketV3_2'
+  | 'predictionMarketV3Plus'
+  | 'predictionMarketV3Manager'
+  | 'predictionMarketV3Controller'
+  | 'predictionMarketV3Querier'
+  | 'multicall3'
+  | 'erc20'
+  | 'realitio'
+  | 'achievements'
+  | 'voting'
+  | 'arbitration'
+  | 'arbitrationProxy'
+  | 'merkleRewardsDistributor';
