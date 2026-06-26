@@ -3,6 +3,7 @@ import { ExecuteDTO } from './ExecuteDTO';
 
 import { ExecuteUseCase } from './ExecuteUseCase';
 import { EncryptionService } from '../../services/Encryption';
+import { PolkamarketsContractProvider } from '@providers/implementations/PolkamarketsContractProvider';
 import { getNetworkConfigOrThrow } from '@config/Networks';
 
 export class ExecuteController {
@@ -18,7 +19,10 @@ export class ExecuteController {
     // validate and set network
     const parsedNetworkId = parseInt(networkId as string);
     try { getNetworkConfigOrThrow(parsedNetworkId); } catch (e:any) { return response.status(400).json({ message: e.message }); }
-    this.executeUseCase.contractProvider.useNetwork(parsedNetworkId);
+    // per-request provider: a shared instance would let concurrent requests for
+    // different networks overwrite each other's network state across awaits
+    const contractProvider = new PolkamarketsContractProvider();
+    contractProvider.useNetwork(parsedNetworkId);
     // decrypt private key and validate timestamp
     const decryptedPrivateKey = encryptionService.decrypt(privateKey);
     const decryptedTimestamp = encryptionService.decrypt(timestamp);
@@ -30,9 +34,9 @@ export class ExecuteController {
       });
     }
 
-    for(let providerIndex = 0; providerIndex < this.executeUseCase.contractProvider.web3Providers.length; providerIndex++) {
+    for(let providerIndex = 0; providerIndex < contractProvider.web3Providers.length; providerIndex++) {
       try {
-        let data = await this.executeUseCase.execute({
+        let data = await this.executeUseCase.execute(contractProvider, {
           contract,
           method,
           address,
@@ -49,7 +53,7 @@ export class ExecuteController {
         return response.status(200).json(data);
       } catch (error) {
         // No providers left, raising last error
-        if (providerIndex === this.executeUseCase.contractProvider.web3Providers.length - 1) {
+        if (providerIndex === contractProvider.web3Providers.length - 1) {
           return response.status(500).json({
             message: error.message || 'Unexpected contract call error.'
           });

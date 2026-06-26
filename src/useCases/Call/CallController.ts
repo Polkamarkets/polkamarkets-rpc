@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { CallDTO } from './CallDTO';
 
 import { CallUseCase } from './CallUseCase';
+import { PolkamarketsContractProvider } from '@providers/implementations/PolkamarketsContractProvider';
 import { getNetworkConfigOrThrow } from '@config/Networks';
 
 export class CallController {
@@ -83,11 +84,14 @@ export class CallController {
 
     // validate and set network
     try { getNetworkConfigOrThrow(parsedNetworkId); } catch (e:any) { return response.status(400).json({ message: e.message }); }
-    this.callUseCase.contractProvider.useNetwork(parsedNetworkId);
+    // per-request provider: a shared instance would let concurrent requests for
+    // different networks overwrite each other's network state across awaits
+    const contractProvider = new PolkamarketsContractProvider();
+    contractProvider.useNetwork(parsedNetworkId);
 
-    for(let providerIndex = 0; providerIndex < this.callUseCase.contractProvider.web3Providers.length; providerIndex++) {
+    for(let providerIndex = 0; providerIndex < contractProvider.web3Providers.length; providerIndex++) {
       try {
-        let data = await this.callUseCase.execute({
+        let data = await this.callUseCase.execute(contractProvider, {
           contract,
           method,
           address,
@@ -103,7 +107,7 @@ export class CallController {
         return response.status(200).send(Object.values(data));
       } catch (error) {
         // No providers left, raising last error
-        if (providerIndex === this.callUseCase.contractProvider.web3Providers.length - 1) {
+        if (providerIndex === contractProvider.web3Providers.length - 1) {
           return response.status(500).json({
             message: error.message || 'Unexpected contract call error.'
           });

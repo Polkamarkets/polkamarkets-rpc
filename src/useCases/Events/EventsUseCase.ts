@@ -2,10 +2,8 @@ import { ContractProvider } from '@providers/ContractProvider';
 import { EventsDTO } from './EventsDTO';
 
 export class EventsUseCase {
-  constructor(public contractProvider: ContractProvider) {}
-
-  async execute({ contract, eventName, filter, address, providerIndex, fromBlock, toBlock, networkId }: EventsDTO) {
-    const events = await this.contractProvider.getContractEvents(
+  async execute(contractProvider: ContractProvider, { contract, eventName, filter, address, providerIndex, fromBlock, toBlock, networkId }: EventsDTO) {
+    const events = await contractProvider.getContractEvents(
       contract,
       address,
       providerIndex,
