@@ -15,6 +15,13 @@
       "when": 1764727001223,
       "tag": "0001_add_events_network_id",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784246400000,
+      "tag": "0002_add_event_scan_cursors",
+      "breakpoints": true
     }
   ]
 }

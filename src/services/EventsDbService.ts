@@ -1,5 +1,5 @@
 import { db } from '@db/index';
-import { events } from '@db/schema';
+import { events, eventScanCursors } from '@db/schema';
 import { and, eq, max, sql } from 'drizzle-orm';
 
 type GetPastEvents = (eventName: string, options: { filter: any, fromBlock: number | string, toBlock: number | string }) => Promise<any[]>;
@@ -37,13 +37,31 @@ export class EventsDbService {
       toBlock,
     }) : [];
 
-    // Determine incremental windows
+    // Determine incremental windows: the scan cursor marks how far the chain has
+    // already been scanned (even if no events were found), while maxDbBlock covers
+    // rows inserted before the cursor existed.
     const maxDbBlock = useDb ? await this.getMaxBlockNumber(contractAddress, eventName, networkId) : null;
-    const incrementalFrom = typeof maxDbBlock === 'number'
-      ? (maxDbBlock + 1)
-      : (typeof startFromBlock === 'number' ? startFromBlock : 0);
+    const scanCursor = useDb ? await this.getScanCursor(networkId, contractAddress, eventName) : null;
+    const incrementalFrom = Math.max(
+      typeof scanCursor === 'number' ? scanCursor + 1 : 0,
+      typeof maxDbBlock === 'number' ? maxDbBlock + 1 : 0,
+      typeof startFromBlock === 'number' ? startFromBlock : 0
+    );
     const endBlock = (toBlock ?? 'latest') === 'latest' ? await getBlockNumber() : (toBlock as number);
     const maxChunk = Number(chunkSize || 1000);
+
+    // Never advance the cursor into the reorg window near the tip; those blocks
+    // get re-scanned next time (inserts are deduped on (tx_hash, log_index)).
+    const reorgBuffer = Number(process.env.EVENTS_REORG_SAFETY_BLOCKS || 10);
+    const safeCursorCap = endBlock - reorgBuffer;
+    let cursorWatermark = typeof scanCursor === 'number' ? scanCursor : -1;
+    const advanceCursor = async (scannedTo: number) => {
+      if (!useDb) return;
+      const target = Math.min(scannedTo, safeCursorCap);
+      if (target <= cursorWatermark) return;
+      await this.upsertScanCursor(networkId, contractAddress, eventName, target);
+      cursorWatermark = target;
+    };
 
     // First try a single full-range fetch if fallback flag is set; on limit errors, fall back to chunking
     const limitMessages = [
@@ -85,6 +103,8 @@ export class EventsDbService {
             await db.insert(events).values(slice).onConflictDoNothing({ target: [events.txHash, events.logIndex] });
           }
         }
+
+        await advanceCursor(endBlock);
 
         const filteredFull = this.filterByTopics(full, topics);
         if (filteredFull.length) {
@@ -157,6 +177,7 @@ export class EventsDbService {
     while (current <= endBlock) {
       const to = Math.min(current + maxChunk - 1, endBlock);
       await processRange(current, to);
+      await advanceCursor(to);
       current = to + 1;
       if (process.env.EVENTS_RPC_CHUNK_DELAY_MS) {
         await new Promise(r => setTimeout(r, parseInt(process.env.EVENTS_RPC_CHUNK_DELAY_MS)));
@@ -183,6 +204,38 @@ export class EventsDbService {
       }
       return true;
     });
+  }
+
+  private async getScanCursor(networkId: number, contractAddress: string, eventName: string): Promise<number | null> {
+    const rows = await db!
+      .select({ lastScannedBlock: eventScanCursors.lastScannedBlock })
+      .from(eventScanCursors)
+      .where(and(
+        eq(eventScanCursors.networkId, networkId),
+        eq(eventScanCursors.contractAddress, contractAddress.toLowerCase()),
+        eq(eventScanCursors.eventName, eventName)
+      ))
+      .limit(1);
+    return rows?.[0]?.lastScannedBlock ?? null;
+  }
+
+  private async upsertScanCursor(networkId: number, contractAddress: string, eventName: string, block: number) {
+    // GREATEST guards against concurrent scans moving the cursor backwards
+    await db!
+      .insert(eventScanCursors)
+      .values({
+        networkId,
+        contractAddress: contractAddress.toLowerCase(),
+        eventName,
+        lastScannedBlock: block,
+      })
+      .onConflictDoUpdate({
+        target: [eventScanCursors.networkId, eventScanCursors.contractAddress, eventScanCursors.eventName],
+        set: {
+          lastScannedBlock: sql`GREATEST(${eventScanCursors.lastScannedBlock}, ${block})`,
+          updatedAt: sql`now()`,
+        },
+      });
   }
 
   private async getMaxBlockNumber(contractAddress: string, eventName?: string, networkId?: number): Promise<number | null> {

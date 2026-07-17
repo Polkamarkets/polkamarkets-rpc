@@ -1,4 +1,4 @@
-import { pgTable, bigserial, text, bigint, integer, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, bigserial, text, bigint, integer, jsonb, timestamp, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core';
 
 export const events = pgTable('events', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -33,5 +33,19 @@ export const events = pgTable('events', {
     byNetworkTopic2: index('idx_events_network_topic2').on(table.networkId, table.topic2),
     byNetworkTopic3: index('idx_events_network_topic3').on(table.networkId, table.topic3),
     byNetworkBlockNumber: index('idx_events_network_block_number').on(table.networkId, table.blockNumber),
+  };
+});
+
+// Watermark of how far the chain has been scanned per (network, contract, event),
+// independent of whether any events were found in the scanned ranges.
+export const eventScanCursors = pgTable('event_scan_cursors', {
+  networkId: integer('network_id').notNull(),
+  contractAddress: text('contract_address').notNull(),
+  eventName: text('event_name').notNull(),
+  lastScannedBlock: bigint('last_scanned_block', { mode: 'number' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => {
+  return {
+    pk: primaryKey({ columns: [table.networkId, table.contractAddress, table.eventName] }),
   };
 });
