@@ -149,10 +149,14 @@ export class EventsDbService {
       }
     };
 
-    // recursive fetcher with bisection on provider limit errors
-    const processRange = async (fromR: number, toR: number) => {
+    // recursive fetcher with bisection on provider limit errors.
+    // tipRange: ask the node for 'latest' instead of a numeric toBlock so a node
+    // lagging behind getBlockNumber() never rejects the range as beyond its head.
+    // Requires EVENTS_REORG_SAFETY_BLOCKS > max provider lag: the cursor may
+    // advance to endBlock - buffer even though a lagging node answered short.
+    const processRange = async (fromR: number, toR: number, tipRange = false) => {
       try {
-        const chunk = await getPastEvents(eventName, { filter: {}, fromBlock: fromR, toBlock: toR });
+        const chunk = await getPastEvents(eventName, { filter: {}, fromBlock: fromR, toBlock: tipRange ? 'latest' : toR });
         if (!Array.isArray(chunk)) {
           const rpcError = chunk;
           throw rpcError;
@@ -167,16 +171,17 @@ export class EventsDbService {
         if (limitMessages.some(m => msg.toLowerCase().includes(m)) && fromR < toR) {
           const mid = Math.floor((fromR + toR) / 2);
           await processRange(fromR, mid);
-          await processRange(mid + 1, toR);
+          await processRange(mid + 1, toR, tipRange);
           return;
         }
         throw err;
       }
     };
 
+    const scanToLatest = (toBlock ?? 'latest') === 'latest';
     while (current <= endBlock) {
       const to = Math.min(current + maxChunk - 1, endBlock);
-      await processRange(current, to);
+      await processRange(current, to, scanToLatest && to === endBlock);
       await advanceCursor(to);
       current = to + 1;
       if (process.env.EVENTS_RPC_CHUNK_DELAY_MS) {
